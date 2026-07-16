@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "dream",
+  "displayName": "Dream Multi-App",
+  "version": "1.0.0",
+  "targets": {
+    "codex": {
+      "css": "codex.css"
+    },
+    "workbuddy": {
+      "css": "workbuddy.css"
+    }
+  }
+}

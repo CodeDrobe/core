@@ -1,0 +1,42 @@
+{
+  "name": "@codedrobe/core",
+  "version": "0.1.0",
+  "description": "Cross-platform CodeDrobe runtime, CLI, app adapters, and .codedrobe-theme tooling.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CodeDrobe/core.git"
+  },
+  "homepage": "https://github.com/CodeDrobe/core#readme",
+  "bugs": {
+    "url": "https://github.com/CodeDrobe/core/issues"
+  },
+  "bin": {
+    "codedrobe": "bin/codedrobe.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./adapters": "./src/adapters/index.mjs",
+    "./theme": "./src/theme/package.mjs"
+  },
+  "files": [
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "bin",
+    "src",
+    "README_zh.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=22.4"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  }
+}

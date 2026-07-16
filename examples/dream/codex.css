@@ -1,0 +1,17 @@
+:root.codedrobe-host-codex {
+  --codedrobe-surface: #fff4fa;
+  --codedrobe-panel: rgba(255, 255, 255, 0.78);
+  --codedrobe-accent: #b65cff;
+  --codedrobe-ink: #4a235f;
+}
+
+html.codedrobe-host-codex body {
+  background: radial-gradient(circle at 80% 10%, #f8dcff, transparent 36%), var(--codedrobe-surface);
+  color: var(--codedrobe-ink);
+}
+
+html.codedrobe-host-codex aside,
+html.codedrobe-host-codex .composer-surface-chrome {
+  background-color: var(--codedrobe-panel);
+  backdrop-filter: blur(18px);
+}

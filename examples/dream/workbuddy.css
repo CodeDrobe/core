@@ -1,0 +1,23 @@
+:root.codedrobe-host-workbuddy {
+  --codedrobe-surface: #fff4fa;
+  --codedrobe-panel: rgba(255, 255, 255, 0.8);
+  --codedrobe-accent: #b65cff;
+  --codedrobe-ink: #4a235f;
+}
+
+html.codedrobe-host-workbuddy body,
+html.codedrobe-host-workbuddy .monaco-workbench {
+  background-color: var(--codedrobe-surface);
+  color: var(--codedrobe-ink);
+}
+
+html.codedrobe-host-workbuddy .part.sidebar,
+html.codedrobe-host-workbuddy [class*="sidebar"] {
+  background-color: var(--codedrobe-panel);
+  backdrop-filter: blur(18px);
+}
+
+html.codedrobe-host-workbuddy textarea,
+html.codedrobe-host-workbuddy [contenteditable="true"] {
+  caret-color: var(--codedrobe-accent);
+}
