@@ -1,5 +1,6 @@
 export {
   MAX_THEME_PACKAGE_BYTES,
+  MAX_THEME_IMAGES,
   THEME_EXTENSION,
   THEME_FORMAT,
   THEME_SCHEMA_VERSION,
@@ -24,6 +25,7 @@ export type {
   LegacyThemePackage,
   ResolvedThemeTarget,
   ThemeArt,
+  ThemeImage,
   ThemeIdentity,
   ThemeLintWarning,
   ThemePackage,

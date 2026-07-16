@@ -5,8 +5,11 @@ export const THEME_FORMAT = "codedrobe-theme";
 export const THEME_EXTENSION = ".codedrobe-theme";
 export const THEME_SCHEMA_VERSION = 1;
 export const MAX_THEME_PACKAGE_BYTES = 30 * 1024 * 1024;
+export const MAX_THEME_IMAGES = 32;
 
 const SAFE_ID = /^[a-z0-9][a-z0-9_-]*$/i;
+const SAFE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const REMOTE_CSS = /@import\s|url\(\s*["']?(?!data:)/i;
 const MAX_VERIFICATION_REQUIREMENTS = 32;
 const MAX_VERIFICATION_CONTEXTS = 16;
@@ -26,8 +29,31 @@ function mimeTypeFor(filename) {
     case ".jpeg": return "image/jpeg";
     case ".webp": return "image/webp";
     case ".gif": return "image/gif";
-    default: return "image/png";
+    case ".png": return "image/png";
+    default: return null;
   }
+}
+
+function validateImageAsset(image, label) {
+  if (!image || typeof image !== "object" || Array.isArray(image)) {
+    throw new Error(`${label} must be an image object.`);
+  }
+  assertString(image.filename, `${label}.filename`);
+  assertString(image.mimeType, `${label}.mimeType`);
+  assertString(image.base64, `${label}.base64`);
+  if (path.basename(image.filename) !== image.filename) {
+    throw new Error(`${label}.filename must be a safe basename.`);
+  }
+  if (!SAFE_IMAGE_TYPES.has(image.mimeType)) {
+    throw new Error(`${label}.mimeType '${image.mimeType}' is not supported.`);
+  }
+  if (!BASE64.test(image.base64)) throw new Error(`${label}.base64 must contain valid Base64 data.`);
+}
+
+function resolvedImageAssets(bundle) {
+  const images = { ...(bundle.assets?.images ?? {}) };
+  if (bundle.assets?.art && !images.hero) images.hero = bundle.assets.art;
+  return images;
 }
 
 function validateSelectorArray(selectors, label) {
@@ -188,6 +214,22 @@ function validateTarget(target, appId) {
   if (REMOTE_CSS.test(target.css)) {
     throw new Error(`Target '${appId}' contains an external CSS resource.`);
   }
+  if (target.options !== undefined && (!target.options || typeof target.options !== "object" || Array.isArray(target.options))) {
+    throw new Error(`targets.${appId}.options must be an object.`);
+  }
+  if (target.options?.rendererProfile !== undefined) {
+    assertString(target.options.rendererProfile, `targets.${appId}.options.rendererProfile`);
+    if (!SAFE_ID.test(target.options.rendererProfile)) {
+      throw new Error(`targets.${appId}.options.rendererProfile must be a safe id.`);
+    }
+  }
+  if (target.options?.baseTheme !== undefined && (
+    !target.options.baseTheme
+    || typeof target.options.baseTheme !== "object"
+    || Array.isArray(target.options.baseTheme)
+  )) {
+    throw new Error(`targets.${appId}.options.baseTheme must be an object.`);
+  }
   validateVerification(target.verification, `targets.${appId}.verification`);
 }
 
@@ -201,6 +243,9 @@ export function validateThemePackage(bundle) {
   assertString(bundle.theme?.displayName, "theme.displayName");
   assertString(bundle.theme?.version, "theme.version");
   if (!SAFE_ID.test(bundle.theme.id)) throw new Error(`Invalid theme id '${bundle.theme.id}'.`);
+  if (bundle.theme.copy !== undefined && (!bundle.theme.copy || typeof bundle.theme.copy !== "object" || Array.isArray(bundle.theme.copy))) {
+    throw new Error("theme.copy must be an object.");
+  }
   if (!bundle.targets || typeof bundle.targets !== "object" || Array.isArray(bundle.targets)) {
     throw new Error("Theme package requires a targets object.");
   }
@@ -208,12 +253,25 @@ export function validateThemePackage(bundle) {
   if (!entries.length) throw new Error("Theme package must support at least one app target.");
   for (const [appId, target] of entries) validateTarget(target, appId);
 
+  if (bundle.assets !== undefined && (!bundle.assets || typeof bundle.assets !== "object" || Array.isArray(bundle.assets))) {
+    throw new Error("assets must be an object.");
+  }
+  if (bundle.assets?.images !== undefined) {
+    if (!bundle.assets.images || typeof bundle.assets.images !== "object" || Array.isArray(bundle.assets.images)) {
+      throw new Error("assets.images must be an object.");
+    }
+    const images = Object.entries(bundle.assets.images);
+    if (!images.length) throw new Error("assets.images must not be empty when provided.");
+    if (images.length > MAX_THEME_IMAGES) throw new Error(`assets.images exceeds ${MAX_THEME_IMAGES} entries.`);
+    for (const [name, image] of images) {
+      if (!SAFE_ID.test(name)) throw new Error(`assets.images contains invalid image id '${name}'.`);
+      validateImageAsset(image, `assets.images.${name}`);
+    }
+  }
   if (bundle.assets?.art) {
-    assertString(bundle.assets.art.filename, "assets.art.filename");
-    assertString(bundle.assets.art.mimeType, "assets.art.mimeType");
-    assertString(bundle.assets.art.base64, "assets.art.base64");
-    if (path.basename(bundle.assets.art.filename) !== bundle.assets.art.filename) {
-      throw new Error("assets.art.filename must be a safe basename.");
+    validateImageAsset(bundle.assets.art, "assets.art");
+    if (bundle.assets.images?.hero) {
+      throw new Error("assets.art cannot be combined with assets.images.hero.");
     }
   }
   return bundle;
@@ -235,13 +293,18 @@ export function resolveThemeTarget(bundle, appId) {
   if (!target) {
     throw new Error(`Theme '${bundle.theme.id}' does not support app '${appId}'.`);
   }
-  const art = bundle.assets?.art;
+  const imageAssets = resolvedImageAssets(bundle);
+  const imageDataUrls = Object.fromEntries(Object.entries(imageAssets).map(([name, image]) => [
+    name,
+    `data:${image.mimeType};base64,${image.base64}`,
+  ]));
   return {
     theme: bundle.theme,
     css: target.css,
     options: target.options ?? {},
     verification: target.verification ?? null,
-    artDataUrl: art ? `data:${art.mimeType};base64,${art.base64}` : null,
+    imageDataUrls,
+    artDataUrl: imageDataUrls.hero ?? null,
   };
 }
 
@@ -263,18 +326,33 @@ export async function buildThemePackage(manifestFilename) {
     };
   }
 
-  let assets;
-  if (source.art) {
-    const artPath = path.resolve(base, source.art);
-    const filename = path.basename(source.art).replace(/[^a-z0-9._-]/gi, "-") || "art.png";
-    assets = {
-      art: {
-        filename,
-        mimeType: mimeTypeFor(artPath),
-        base64: (await fs.readFile(artPath)).toString("base64"),
-      },
+  if (source.images !== undefined && (!source.images || typeof source.images !== "object" || Array.isArray(source.images))) {
+    throw new Error("images must be an object.");
+  }
+  if (source.art && source.images?.hero) {
+    throw new Error("Source manifest art cannot be combined with images.hero.");
+  }
+  const sourceImages = {
+    ...(source.art ? { hero: source.art } : {}),
+    ...(source.images ?? {}),
+  };
+  if (Object.keys(sourceImages).length > MAX_THEME_IMAGES) {
+    throw new Error(`Source manifest images exceeds ${MAX_THEME_IMAGES} entries.`);
+  }
+  const images = {};
+  for (const [name, sourceFilename] of Object.entries(sourceImages)) {
+    if (!SAFE_ID.test(name)) throw new Error(`Source manifest contains invalid image id '${name}'.`);
+    assertString(sourceFilename, `images.${name}`);
+    const imagePath = path.resolve(base, sourceFilename);
+    const mimeType = mimeTypeFor(imagePath);
+    if (!mimeType) throw new Error(`images.${name} uses an unsupported image file type.`);
+    images[name] = {
+      filename: path.basename(sourceFilename).replace(/[^a-z0-9._-]/gi, "-") || `${name}.png`,
+      mimeType,
+      base64: (await fs.readFile(imagePath)).toString("base64"),
     };
   }
+  const assets = Object.keys(images).length ? { images } : null;
 
   const bundle = validateThemePackage({
     format: THEME_FORMAT,

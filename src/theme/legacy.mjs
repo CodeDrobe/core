@@ -7,6 +7,7 @@ import {
   THEME_SCHEMA_VERSION,
   validateThemePackage,
 } from "./package.mjs";
+import { CODEX_THEME_V1_PROFILE } from "../runtime/profiles/codex-theme-v1.mjs";
 
 export const LEGACY_THEME_FORMAT = "codex-theme";
 export const LEGACY_THEME_EXTENSION = ".codex-theme";
@@ -81,6 +82,7 @@ export function convertLegacyThemePackage(legacyBundle) {
   const legacy = validateLegacyThemePackage(legacyBundle);
   const { manifest } = legacy;
   const options = {
+    rendererProfile: CODEX_THEME_V1_PROFILE,
     legacy: {
       format: LEGACY_THEME_FORMAT,
       schemaVersion: LEGACY_THEME_SCHEMA_VERSION,
@@ -106,10 +108,12 @@ export function convertLegacyThemePackage(legacyBundle) {
     },
     ...(legacy.art ? {
       assets: {
-        art: {
-          filename: legacy.art.filename,
-          mimeType: legacy.art.mimeType,
-          base64: legacy.art.base64,
+        images: {
+          hero: {
+            filename: legacy.art.filename,
+            mimeType: legacy.art.mimeType,
+            base64: legacy.art.base64,
+          },
         },
       },
     } : {}),

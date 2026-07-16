@@ -1,3 +1,6 @@
+import codexThemeV1Profile from "../runtime/profiles/codex-theme-v1.mjs";
+import codexHostSettings from "../host/codex-settings.mjs";
+
 const codex = {
   id: "codex",
   displayName: "OpenAI Codex",
@@ -5,6 +8,10 @@ const codex = {
   lastVerified: {
     darwin: { appVersion: "26.707.72221", build: "5307", verifiedAt: "2026-07-16" },
   },
+  rendererProfiles: {
+    [codexThemeV1Profile.id]: codexThemeV1Profile,
+  },
+  hostSettings: codexHostSettings,
   platforms: {
     darwin: {
       bundleId: "com.openai.codex",

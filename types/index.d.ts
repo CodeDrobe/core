@@ -44,6 +44,61 @@ export interface AdapterVerificationRecord {
   verifiedAt: string;
 }
 
+export interface RendererProfileVerification {
+  id: string;
+  pass: boolean;
+  missing?: Array<{ name: string; selectors?: string[] }>;
+  [key: string]: unknown;
+}
+
+export interface RendererProfileRuntime {
+  ensure?: () => unknown;
+  cleanup?: () => unknown;
+  verify?: () => RendererProfileVerification;
+}
+
+export interface RendererProfile {
+  id: string;
+  runtime(context: {
+    theme: ThemeIdentity;
+    imageDataUrls: Record<string, string>;
+    imageUrls: Record<string, string>;
+    artDataUrl: string | null;
+    artUrl: string | null;
+  }): RendererProfileRuntime;
+  cleanup?: () => unknown;
+}
+
+export interface HostSettingsTransaction {
+  supported: boolean;
+  applied: boolean;
+  changed: boolean;
+  restartRequired?: boolean;
+  rollback(): Promise<void>;
+  [key: string]: unknown;
+}
+
+export interface HostSettingsResult {
+  supported: boolean;
+  applied?: boolean;
+  restored?: boolean;
+  changed?: boolean;
+  [key: string]: unknown;
+}
+
+export interface HostSettingsAdapter {
+  apply(context: {
+    targetTheme: ResolvedThemeTarget;
+    platform: string;
+    options: Record<string, unknown>;
+  }): Promise<HostSettingsTransaction>;
+  restore(context: {
+    platform: string;
+    options: Record<string, unknown>;
+  }): Promise<HostSettingsResult>;
+  publicResult?(transaction: HostSettingsTransaction): HostSettingsResult;
+}
+
 export interface AppAdapter {
   id: string;
   displayName: string;
@@ -51,6 +106,8 @@ export interface AppAdapter {
   platforms: Partial<Record<SupportedPlatform, AdapterPlatformConfig>> & Record<string, AdapterPlatformConfig | undefined>;
   lastVerified?: Partial<Record<SupportedPlatform, AdapterVerificationRecord>>;
   verification?: VerificationProfile;
+  rendererProfiles?: Record<string, RendererProfile>;
+  hostSettings?: HostSettingsAdapter;
   matchTarget(target: CdpTarget): boolean;
 }
 
@@ -61,15 +118,20 @@ export interface ThemeIdentity {
   copy?: Record<string, unknown>;
 }
 
-export interface ThemeArt {
+export interface ThemeImage {
   filename: string;
   mimeType: string;
   base64: string;
 }
 
+export interface ThemeArt extends ThemeImage {}
+
 export interface ThemeTarget {
   css: string;
-  options?: Record<string, unknown>;
+  options?: Record<string, unknown> & {
+    rendererProfile?: string;
+    baseTheme?: Record<string, unknown>;
+  };
   verification?: VerificationProfile;
 }
 
@@ -79,7 +141,11 @@ export interface ThemePackage {
   exportedAt?: string;
   theme: ThemeIdentity;
   targets: Record<string, ThemeTarget>;
-  assets?: { art?: ThemeArt };
+  assets?: {
+    images?: Record<string, ThemeImage>;
+    /** @deprecated Use images.hero for new theme packages. */
+    art?: ThemeArt;
+  };
 }
 
 export interface LegacyThemeManifest extends ThemeIdentity {
@@ -111,6 +177,8 @@ export interface ResolvedThemeTarget {
   css: string;
   options: Record<string, unknown>;
   verification: VerificationProfile | null;
+  imageDataUrls: Record<string, string>;
+  /** Backward-compatible alias for imageDataUrls.hero. */
   artDataUrl: string | null;
 }
 
@@ -120,7 +188,7 @@ export interface SelectorParseError {
 }
 
 export interface CompatibilityIssue {
-  scope: "adapter" | "theme";
+  scope: "adapter" | "theme" | "profile";
   context: string | null;
   severity: "required" | "recommended";
   name: string;
@@ -157,6 +225,8 @@ export interface CompatibilityResult {
   version?: string | null;
   stylePresent?: boolean;
   horizontalOverflow?: boolean;
+  images?: string[];
+  profile?: RendererProfileVerification | null;
   pass?: boolean;
 }
 
@@ -165,6 +235,66 @@ export interface TargetResult<T = unknown> {
   title?: string;
   url?: string;
   result: T;
+}
+
+export interface DomSnapshotSelector {
+  selector: string;
+  count: number;
+  valid: boolean;
+  error?: string;
+}
+
+export interface DomSnapshotNode {
+  index: number;
+  parentIndex: number | null;
+  depth: number;
+  tag: string;
+  id: string | null;
+  classes: string[];
+  semanticClasses: string[];
+  attributes: Record<string, string>;
+  selectors: DomSnapshotSelector[];
+  rect: { x: number; y: number; width: number; height: number };
+  states: { visible: boolean; interactive: boolean; editable: boolean };
+  styles: Record<string, string>;
+}
+
+export interface DomSnapshotResult {
+  schemaVersion: 1;
+  appId: string;
+  capturedAt: string;
+  activeTheme: { installed: boolean; id: string | null; version: string | null };
+  route: { protocol: string; origin: string | null; pathname: string };
+  viewport: { width: number; height: number; devicePixelRatio: number };
+  privacy: {
+    textContent: false;
+    formValues: false;
+    accessibleNames: false;
+    linksAndMediaSources: false;
+    queryAndHash: false;
+  };
+  limits: { maxNodes: number; includeHidden: boolean };
+  summary: {
+    documentElements: number;
+    eligibleNodes: number;
+    recordedNodes: number;
+    truncated: boolean;
+    openShadowRoots: number;
+  };
+  landmarks: Array<{
+    name: string;
+    kind: "root" | "required" | "recommended";
+    selectors: Array<DomSnapshotSelector & { visibleCount: number }>;
+  }>;
+  nodes: DomSnapshotNode[];
+}
+
+export interface DomSnapshotOptions {
+  adapter: AppAdapter;
+  port: number;
+  timeoutMs?: number;
+  maxNodes?: number;
+  includeHidden?: boolean;
 }
 
 export interface AppInstallation {
@@ -198,6 +328,57 @@ export interface ThemeRuntimeOptions {
   timeoutMs?: number;
 }
 
+export interface HostSettingsOptions {
+  configPath?: string;
+  backupPath?: string;
+  home?: string;
+  stateRoot?: string;
+  env?: Record<string, string | undefined>;
+  [key: string]: unknown;
+}
+
+export interface ApplySkinOptions {
+  adapter: AppAdapter;
+  targetTheme: ResolvedThemeTarget;
+  port?: number;
+  launch?: boolean;
+  appPath?: string | null;
+  profilePath?: string | null;
+  restartExisting?: boolean;
+  timeoutMs?: number;
+  hostOptions?: HostSettingsOptions;
+}
+
+export interface ApplySkinResult {
+  action: "apply";
+  appId: string;
+  port: number;
+  theme: ThemeIdentity;
+  launch: LaunchResult | null;
+  host: HostSettingsResult;
+  targets: Array<TargetResult<CompatibilityResult>>;
+}
+
+export interface RestoreSkinOptions {
+  adapter: AppAdapter;
+  port?: number;
+  timeoutMs?: number;
+  hostOptions?: HostSettingsOptions;
+}
+
+export interface RestoreSkinResult {
+  action: "restore";
+  appId: string;
+  port: number;
+  renderer: {
+    restored: boolean;
+    targets?: Array<TargetResult<boolean>>;
+    code?: string | null;
+    message?: string;
+  };
+  host: HostSettingsResult;
+}
+
 export interface ThemeLintWarning {
   code: string;
   appId: string;
@@ -223,6 +404,9 @@ export const THEME_FORMAT: "codedrobe-theme";
 export const THEME_EXTENSION: ".codedrobe-theme";
 export const THEME_SCHEMA_VERSION: 1;
 export const MAX_THEME_PACKAGE_BYTES: number;
+export const MAX_THEME_IMAGES: number;
+export const DOM_SNAPSHOT_DEFAULT_MAX_NODES: number;
+export const DOM_SNAPSHOT_MAX_NODES: number;
 export const LEGACY_THEME_FORMAT: "codex-theme";
 export const LEGACY_THEME_EXTENSION: ".codex-theme";
 export const LEGACY_THEME_SCHEMA_VERSION: 1;
@@ -237,6 +421,7 @@ export function launchApp(options: LaunchOptions): Promise<LaunchResult>;
 export function findTargets(adapter: AppAdapter, port: number, timeoutMs?: number): Promise<CdpTarget[]>;
 export function waitForTargets(adapter: AppAdapter, port: number, timeoutMs?: number): Promise<CdpTarget[]>;
 export function probeApp(options: ThemeRuntimeOptions): Promise<Array<TargetResult<CompatibilityResult>>>;
+export function snapshotDom(options: DomSnapshotOptions): Promise<Array<TargetResult<DomSnapshotResult>>>;
 export function applyTheme(options: ThemeRuntimeOptions & { targetTheme: ResolvedThemeTarget }): Promise<Array<TargetResult<CompatibilityResult>>>;
 export function verifyTheme(options: ThemeRuntimeOptions): Promise<Array<TargetResult<CompatibilityResult>>>;
 export function removeTheme(options: Omit<ThemeRuntimeOptions, "targetTheme">): Promise<Array<TargetResult<boolean>>>;
@@ -244,7 +429,22 @@ export function captureScreenshot(options: Omit<ThemeRuntimeOptions, "targetThem
 export function watchTheme(options: ThemeRuntimeOptions & {
   targetTheme: ResolvedThemeTarget;
   onEvent?: (event: Record<string, unknown>) => void;
+  signal?: AbortSignal | null;
 }): Promise<void>;
+
+export function applySkin(options: ApplySkinOptions): Promise<ApplySkinResult>;
+export function restoreSkin(options: RestoreSkinOptions): Promise<RestoreSkinResult>;
+export function prepareHostSettings(options: {
+  adapter: AppAdapter;
+  targetTheme: ResolvedThemeTarget;
+  platform?: string;
+  options?: HostSettingsOptions;
+}): Promise<HostSettingsTransaction>;
+export function restoreHostSettings(options: {
+  adapter: AppAdapter;
+  platform?: string;
+  options?: HostSettingsOptions;
+}): Promise<HostSettingsResult>;
 
 export function validateThemePackage(bundle: unknown): ThemePackage;
 export function readThemePackage(filename: string): Promise<ThemePackage>;

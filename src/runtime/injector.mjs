@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { CdpSession, listCdpTargets } from "../cdp/session.mjs";
+import { buildDomSnapshotExpression, DOM_SNAPSHOT_DEFAULT_MAX_NODES } from "./dom-snapshot.mjs";
 import { buildApplyExpression, buildProbeExpression, buildRemoveExpression, buildVerifyExpression } from "./renderer-payload.mjs";
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -32,10 +33,10 @@ export async function waitForTargets(adapter, port, timeoutMs = 30000) {
   throw error;
 }
 
-async function withSessions(targets, callback) {
+async function withSessions(targets, callback, sessionTimeoutMs = 10000) {
   const results = [];
   for (const target of targets) {
-    const session = await new CdpSession(target).open();
+    const session = await new CdpSession(target, sessionTimeoutMs).open();
     try {
       results.push({ targetId: target.id, title: target.title, url: target.url, result: await callback(session, target) });
     } finally {
@@ -79,6 +80,19 @@ export async function probeApp({ adapter, targetTheme = null, port, timeoutMs = 
   return withSessions(targets, (session) => waitForCompatibility(session, expression, Math.min(timeoutMs, 5000)));
 }
 
+export async function snapshotDom({
+  adapter,
+  port,
+  timeoutMs = 5000,
+  maxNodes = DOM_SNAPSHOT_DEFAULT_MAX_NODES,
+  includeHidden = false,
+}) {
+  const targets = await waitForTargets(adapter, port, timeoutMs);
+  const expression = buildDomSnapshotExpression(adapter, { maxNodes, includeHidden });
+  const results = await withSessions(targets, (session) => session.evaluate(expression), timeoutMs);
+  return results.map(({ targetId, result }) => ({ targetId, result }));
+}
+
 export async function applyTheme({ adapter, targetTheme, port, timeoutMs = 30000 }) {
   const targets = await waitForTargets(adapter, port, timeoutMs);
   const preflightExpression = buildProbeExpression(adapter, targetTheme.verification);
@@ -88,11 +102,18 @@ export async function applyTheme({ adapter, targetTheme, port, timeoutMs = 30000
   );
   ensureCompatible(adapter, preflight);
   const expression = buildApplyExpression({ adapter, targetTheme });
-  return withSessions(targets, async (session) => {
-    await session.evaluate(expression);
-    await delay(500);
-    return session.evaluate(buildVerifyExpression(adapter, targetTheme.theme, targetTheme.verification));
-  });
+  let rendererMutated = false;
+  try {
+    return await withSessions(targets, async (session) => {
+      await session.evaluate(expression);
+      rendererMutated = true;
+      await delay(500);
+      return session.evaluate(buildVerifyExpression(adapter, targetTheme.theme, targetTheme.verification, targetTheme));
+    });
+  } catch (error) {
+    error.rendererMutated = rendererMutated;
+    throw error;
+  }
 }
 
 export async function verifyTheme({ adapter, targetTheme, port, timeoutMs = 30000 }) {
@@ -101,6 +122,7 @@ export async function verifyTheme({ adapter, targetTheme, port, timeoutMs = 3000
     adapter,
     targetTheme?.theme ?? null,
     targetTheme?.verification ?? null,
+    targetTheme,
   )));
 }
 
@@ -127,57 +149,64 @@ export async function captureScreenshot({ adapter, port, output, timeoutMs = 300
   }
 }
 
-export async function watchTheme({ adapter, targetTheme, port, timeoutMs = 30000, onEvent = () => {} }) {
+export async function watchTheme({ adapter, targetTheme, port, timeoutMs = 30000, onEvent = () => {}, signal = null }) {
   const expression = buildApplyExpression({ adapter, targetTheme });
   const preflightExpression = buildProbeExpression(adapter, targetTheme.verification);
   const sessions = new Map();
-  let stopping = false;
+  let stopping = Boolean(signal?.aborted);
   const stop = () => { stopping = true; };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
+  signal?.addEventListener("abort", stop, { once: true });
 
-  while (!stopping) {
-    let targets = [];
-    try {
-      targets = await waitForTargets(adapter, port, Math.min(timeoutMs, 2000));
-    } catch (error) {
-      onEvent({ type: "waiting", message: error.message });
-      await delay(900);
-      continue;
-    }
-    const activeIds = new Set(targets.map((target) => target.id));
-    for (const [id, session] of sessions) {
-      if (!activeIds.has(id) || session.closed) {
-        session.close();
-        sessions.delete(id);
-      }
-    }
-    for (const target of targets) {
-      if (sessions.has(target.id)) continue;
-      let session;
+  try {
+    while (!stopping) {
+      let targets = [];
       try {
-        session = await new CdpSession(target).open();
-        const applyCompatible = async () => {
-          const result = await waitForCompatibility(session, preflightExpression, Math.min(timeoutMs, 5000));
-          ensureCompatible(adapter, [{ targetId: target.id, title: target.title, url: target.url, result }]);
-          await session.evaluate(expression);
-        };
-        session.on("Page.loadEventFired", () => {
-          setTimeout(() => applyCompatible().catch((error) => {
-            onEvent({ type: "error", code: error.code, message: error.message, missing: error.missing ?? [] });
-            session.close();
-            sessions.delete(target.id);
-          }), 250);
-        });
-        await applyCompatible();
-        sessions.set(target.id, session);
-        onEvent({ type: "injected", targetId: target.id, title: target.title });
+        targets = await waitForTargets(adapter, port, Math.min(timeoutMs, 2000));
       } catch (error) {
-        session?.close();
-        onEvent({ type: "error", targetId: target.id, code: error.code, message: error.message, missing: error.missing ?? [] });
+        onEvent({ type: "waiting", message: error.message });
+        await delay(900);
+        continue;
       }
+      const activeIds = new Set(targets.map((target) => target.id));
+      for (const [id, session] of sessions) {
+        if (!activeIds.has(id) || session.closed) {
+          session.close();
+          sessions.delete(id);
+        }
+      }
+      for (const target of targets) {
+        if (sessions.has(target.id)) continue;
+        let session;
+        try {
+          session = await new CdpSession(target).open();
+          const applyCompatible = async () => {
+            const result = await waitForCompatibility(session, preflightExpression, Math.min(timeoutMs, 5000));
+            ensureCompatible(adapter, [{ targetId: target.id, title: target.title, url: target.url, result }]);
+            await session.evaluate(expression);
+          };
+          session.on("Page.loadEventFired", () => {
+            setTimeout(() => applyCompatible().catch((error) => {
+              onEvent({ type: "error", code: error.code, message: error.message, missing: error.missing ?? [] });
+              session.close();
+              sessions.delete(target.id);
+            }), 250);
+          });
+          await applyCompatible();
+          sessions.set(target.id, session);
+          onEvent({ type: "injected", targetId: target.id, title: target.title });
+        } catch (error) {
+          session?.close();
+          onEvent({ type: "error", targetId: target.id, code: error.code, message: error.message, missing: error.missing ?? [] });
+        }
+      }
+      await delay(900);
     }
-    await delay(900);
+  } finally {
+    process.off("SIGINT", stop);
+    process.off("SIGTERM", stop);
+    signal?.removeEventListener("abort", stop);
+    for (const session of sessions.values()) session.close();
   }
-  for (const session of sessions.values()) session.close();
 }

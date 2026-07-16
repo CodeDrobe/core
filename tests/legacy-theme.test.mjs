@@ -37,7 +37,9 @@ test("converts a legacy Codex package into a single-target CodeDrobe package", (
   assert.deepEqual(Object.keys(converted.targets), ["codex"]);
   assert.equal(converted.theme.copy.tagline, "Converted safely");
   assert.equal(converted.targets.codex.options.baseTheme.accent, "#b65cff");
-  assert.equal(converted.assets.art.filename, "cover.png");
+  assert.equal(converted.targets.codex.options.rendererProfile, "codex-theme-v1");
+  assert.equal(converted.assets.images.hero.filename, "cover.png");
+  assert.match(resolveThemeTarget(converted, "codex").imageDataUrls.hero, /^data:image\/png;base64,/);
   assert.match(resolveThemeTarget(converted, "codex").css, /#432/);
 });
 

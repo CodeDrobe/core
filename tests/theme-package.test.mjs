@@ -40,6 +40,60 @@ test("writes, reads, and resolves a .codedrobe-theme package", async () => {
   await assert.rejects(() => writeThemePackage(exampleManifest.pathname, output), /already exists/);
 });
 
+test("packs and resolves multiple named images with a backward-compatible hero alias", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "codedrobe-theme-images-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  await fs.writeFile(path.join(directory, "theme.css"), ".hero { background: var(--codedrobe-image-hero); }", "utf8");
+  await fs.writeFile(path.join(directory, "hero.png"), Buffer.from("hero"));
+  await fs.writeFile(path.join(directory, "logo.webp"), Buffer.from("logo"));
+  await fs.writeFile(path.join(directory, "theme.json"), JSON.stringify({
+    schemaVersion: 1,
+    id: "image-theme",
+    displayName: "Image Theme",
+    version: "1.0.0",
+    images: { hero: "hero.png", logo: "logo.webp" },
+    targets: { codex: { css: "theme.css" } },
+  }), "utf8");
+
+  const { bundle } = await buildThemePackage(path.join(directory, "theme.json"));
+  assert.deepEqual(Object.keys(bundle.assets.images), ["hero", "logo"]);
+  assert.equal(bundle.assets.images.logo.mimeType, "image/webp");
+  assert.equal(bundle.assets.art, undefined);
+  const resolved = resolveThemeTarget(bundle, "codex");
+  assert.deepEqual(Object.keys(resolved.imageDataUrls), ["hero", "logo"]);
+  assert.equal(resolved.artDataUrl, resolved.imageDataUrls.hero);
+  assert.match(resolved.imageDataUrls.logo, /^data:image\/webp;base64,/);
+});
+
+test("reads legacy assets.art as images.hero and rejects unsafe named images", () => {
+  const base = {
+    format: "codedrobe-theme",
+    schemaVersion: 1,
+    theme: { id: "images", displayName: "Images", version: "1.0.0" },
+    targets: { codex: { css: ":root { color: red; }" } },
+  };
+  const legacy = {
+    ...base,
+    assets: { art: { filename: "hero.png", mimeType: "image/png", base64: "aGVsbG8=" } },
+  };
+  assert.match(resolveThemeTarget(legacy, "codex").imageDataUrls.hero, /^data:image\/png;base64,/);
+  assert.throws(() => validateThemePackage({
+    ...base,
+    assets: { images: { "../logo": { filename: "logo.png", mimeType: "image/png", base64: "aGVsbG8=" } } },
+  }), /invalid image id/);
+  assert.throws(() => validateThemePackage({
+    ...base,
+    assets: { images: { logo: { filename: "logo.svg", mimeType: "image\/svg+xml", base64: "aGVsbG8=" } } },
+  }), /not supported/);
+  assert.throws(() => validateThemePackage({
+    ...base,
+    assets: {
+      art: { filename: "old.png", mimeType: "image/png", base64: "aGVsbG8=" },
+      images: { hero: { filename: "new.png", mimeType: "image/png", base64: "aGVsbG8=" } },
+    },
+  }), /cannot be combined/);
+});
+
 test("rejects external CSS resources and executable-looking package variants", () => {
   const base = {
     format: "codedrobe-theme",

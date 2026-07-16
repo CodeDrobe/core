@@ -1,6 +1,6 @@
 {
   "name": "@codedrobe/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Cross-platform CodeDrobe runtime, CLI, app adapters, and .codedrobe-theme tooling.",
   "type": "module",
   "license": "Apache-2.0",

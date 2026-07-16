@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
@@ -7,6 +8,20 @@ import { findTargets } from "./injector.mjs";
 
 const execFileAsync = promisify(execFile);
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function isPortOccupied(port) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: "127.0.0.1", port });
+    const finish = (occupied) => {
+      socket.destroy();
+      resolve(occupied);
+    };
+    socket.setTimeout(800);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+  });
+}
 
 function expandPath(value) {
   return value
@@ -132,9 +147,12 @@ async function stopExisting(adapter, pids, platform = process.platform, executab
 }
 
 export async function launchApp({ adapter, port = adapter.defaultPort, appPath = null, profilePath = null, restartExisting = false, timeoutMs = 30000 }) {
+  let readyTargets = [];
   try {
-    const targets = await findTargets(adapter, port);
-    if (targets.length) return { appId: adapter.id, port, alreadyReady: true, targets: targets.length };
+    readyTargets = await findTargets(adapter, port);
+    if (readyTargets.length && !restartExisting) {
+      return { appId: adapter.id, port, alreadyReady: true, targets: readyTargets.length };
+    }
   } catch { /* Launch when the endpoint is absent. */ }
 
   const discovered = await discoverApp(adapter, process.platform, appPath);
@@ -145,12 +163,26 @@ export async function launchApp({ adapter, port = adapter.defaultPort, appPath =
     throw new Error(`${adapter.displayName} is not installed or could not be discovered.`);
   }
 
+  if (!readyTargets.length && await isPortOccupied(port)) {
+    const error = new Error(`Port ${port} is already occupied by another process.`);
+    error.code = "CODEDROBE_PORT_OCCUPIED";
+    error.port = port;
+    throw error;
+  }
+
   const runningPids = await findRunningPids(adapter, process.platform, discovered.executable);
   if (runningPids.length) {
     if (!restartExisting) {
       throw new Error(`${adapter.displayName} is already running without CodeDrobe on port ${port}. Close it or pass --restart-existing.`);
     }
     await stopExisting(adapter, runningPids, process.platform, discovered.executable);
+  }
+
+  if (await isPortOccupied(port)) {
+    const error = new Error(`Port ${port} is still occupied after stopping ${adapter.displayName}.`);
+    error.code = "CODEDROBE_PORT_OCCUPIED";
+    error.port = port;
+    throw error;
   }
 
   const args = [`--remote-debugging-address=127.0.0.1`, `--remote-debugging-port=${port}`];

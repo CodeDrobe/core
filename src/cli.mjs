@@ -1,7 +1,10 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { getAdapter, listAdapters } from "./adapters/index.mjs";
 import { discoverApp, findRunningPids, launchApp } from "./runtime/launcher.mjs";
-import { applyTheme, captureScreenshot, probeApp, removeTheme, verifyTheme, watchTheme } from "./runtime/injector.mjs";
+import { DOM_SNAPSHOT_DEFAULT_MAX_NODES, DOM_SNAPSHOT_MAX_NODES } from "./runtime/dom-snapshot.mjs";
+import { captureScreenshot, probeApp, snapshotDom, verifyTheme, watchTheme } from "./runtime/injector.mjs";
+import { applySkin, restoreSkin } from "./runtime/skin.mjs";
 import { lintThemePackage, readThemePackage, resolveThemeTarget, writeThemePackage } from "./theme/package.mjs";
 import { convertLegacyThemeFile } from "./theme/legacy.mjs";
 import { checkForUpdate, detectPackageManager, formatCommand, getUpdateCommand, maybeNotifyUpdate, updateCodeDrobe } from "./update.mjs";
@@ -13,8 +16,9 @@ Usage:
   codedrobe apps [--json]
   codedrobe detect [--app <id>] [--app-path <path>] [--json]
   codedrobe launch --app <id> [--app-path <path>] [--port <port>] [--restart-existing] [--profile <path>]
+  codedrobe dom snapshot --app <id> [--port <port>] [--output <json>] [--max-nodes <count>] [--include-hidden] [--timeout-ms <milliseconds>]
   codedrobe probe --app <id> [--theme <file.codedrobe-theme>] [--port <port>] [--timeout-ms <milliseconds>]
-  codedrobe apply --app <id> --theme <file.codedrobe-theme> [--app-path <path>] [--port <port>] [--watch] [--restart-existing]
+  codedrobe apply --app <id> --theme <file.codedrobe-theme> [--app-path <path>] [--port <port>] [--profile <path>] [--watch] [--restart-existing] [--no-launch]
   codedrobe verify --app <id> [--theme <file.codedrobe-theme>] [--port <port>] [--screenshot <png>]
   codedrobe restore --app <id> [--port <port>]
   codedrobe update [--check] [--json]
@@ -25,12 +29,13 @@ Usage:
 Safety:
   Existing apps are never restarted unless --restart-existing is provided.
   CDP is always bound to 127.0.0.1 by the launcher.
+  DOM snapshots exclude text, input values, accessible names, links, and media sources.
   --app-path accepts an app bundle, installation directory, or executable file.`;
 
 function parseArguments(argv) {
   const options = {};
   const positional = [];
-  const boolean = new Set(["json", "watch", "restart-existing", "no-launch", "force", "check", "help", "version"]);
+  const boolean = new Set(["json", "watch", "restart-existing", "no-launch", "force", "check", "help", "version", "include-hidden"]);
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (!value.startsWith("--")) {
@@ -65,6 +70,14 @@ function parseTimeout(value, fallback) {
     throw new Error(`Invalid timeout '${value}'. Use an integer from 250 to 300000 milliseconds.`);
   }
   return timeoutMs;
+}
+
+function parseMaxNodes(value) {
+  const maxNodes = value === undefined ? DOM_SNAPSHOT_DEFAULT_MAX_NODES : Number(value);
+  if (!Number.isInteger(maxNodes) || maxNodes < 50 || maxNodes > DOM_SNAPSHOT_MAX_NODES) {
+    throw new Error(`Invalid max nodes '${value}'. Use an integer from 50 to ${DOM_SNAPSHOT_MAX_NODES}.`);
+  }
+  return maxNodes;
 }
 
 function requireOption(options, name) {
@@ -139,18 +152,16 @@ async function runApply(options) {
   const adapter = getAdapter(requireOption(options, "app"));
   const port = parsePort(options.port, adapter.defaultPort);
   const { targetTheme } = await loadTargetTheme(requireOption(options, "theme"), adapter.id);
-  if (!options["no-launch"]) {
-    await launchApp({
-      adapter,
-      port,
-      appPath: options["app-path"],
-      profilePath: options.profile,
-      restartExisting: Boolean(options["restart-existing"]),
-    });
-  }
-  const results = await applyTheme({ adapter, targetTheme, port });
-  output({ action: "apply", appId: adapter.id, port, theme: targetTheme.theme, targets: results }, options.json);
-  ensurePassing(results, "Theme application");
+  const result = await applySkin({
+    adapter,
+    targetTheme,
+    port,
+    launch: !options["no-launch"],
+    appPath: options["app-path"],
+    profilePath: options.profile,
+    restartExisting: Boolean(options["restart-existing"]),
+  });
+  output(result, options.json);
   if (options.watch) {
     await watchTheme({
       adapter,
@@ -182,6 +193,56 @@ async function runProbe(options) {
   ensureCompatible(results, `${adapter.displayName}`);
 }
 
+async function runDomCommand(positional, options) {
+  if (positional[1] !== "snapshot") throw new Error("DOM command must be 'snapshot'.");
+  const adapter = getAdapter(requireOption(options, "app"));
+  const port = parsePort(options.port, adapter.defaultPort);
+  const timeoutMs = parseTimeout(options["timeout-ms"], 5000);
+  const maxNodes = parseMaxNodes(options["max-nodes"]);
+  if (!options.json) {
+    console.error(`[codedrobe] Reading ${adapter.displayName} DOM on 127.0.0.1:${port} (timeout ${timeoutMs}ms). Snapshot does not launch or mutate the app.`);
+  }
+  let targets;
+  try {
+    targets = await snapshotDom({
+      adapter,
+      port,
+      timeoutMs,
+      maxNodes,
+      includeHidden: Boolean(options["include-hidden"]),
+    });
+  } catch (cause) {
+    const error = new Error(`${cause.message}\nDOM snapshot only inspects an existing CDP session. Start it first with: codedrobe launch --app ${adapter.id} --port ${port}`);
+    error.code = cause.code;
+    error.cause = cause;
+    throw error;
+  }
+  const result = {
+    action: "dom-snapshot",
+    appId: adapter.id,
+    port,
+    targets,
+  };
+  if (!options.output) {
+    output(result, true);
+    return;
+  }
+  const filename = path.resolve(options.output);
+  await fs.mkdir(path.dirname(filename), { recursive: true });
+  await fs.writeFile(filename, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+  const nodeCount = targets.reduce((sum, item) => sum + (item.result?.nodes?.length ?? 0), 0);
+  const truncated = targets.some((item) => item.result?.summary?.truncated);
+  output(options.json ? { ...result, output: filename } : {
+    action: result.action,
+    appId: result.appId,
+    port,
+    output: filename,
+    targetCount: targets.length,
+    nodeCount,
+    truncated,
+  }, options.json);
+}
+
 async function runVerify(options) {
   const adapter = getAdapter(requireOption(options, "app"));
   const port = parsePort(options.port, adapter.defaultPort);
@@ -200,12 +261,16 @@ async function runThemeCommand(positional, options) {
   if (action === "inspect") {
     if (!filename) throw new Error("Theme inspect requires a .codedrobe-theme file.");
     const bundle = await readThemePackage(path.resolve(filename));
+    const imageNames = Object.keys(bundle.assets?.images ?? {});
+    if (bundle.assets?.art && !imageNames.includes("hero")) imageNames.unshift("hero");
     output({
       format: bundle.format,
       schemaVersion: bundle.schemaVersion,
       theme: bundle.theme,
       targets: Object.keys(bundle.targets),
-      hasArt: Boolean(bundle.assets?.art),
+      images: imageNames,
+      imageCount: imageNames.length,
+      hasArt: imageNames.includes("hero"),
       exportedAt: bundle.exportedAt,
       warnings: lintThemePackage(bundle),
     }, options.json);
@@ -278,6 +343,7 @@ async function dispatchCli(positional, options) {
     return;
   }
   if (command === "detect") return runDetect(options);
+  if (command === "dom") return runDomCommand(positional, options);
   if (command === "theme") return runThemeCommand(positional, options);
   if (command === "update") return runUpdate(options);
 
@@ -298,8 +364,7 @@ async function dispatchCli(positional, options) {
   if (command === "apply") return runApply(options);
   if (command === "verify") return runVerify(options);
   if (command === "restore" || command === "remove") {
-    const results = await removeTheme({ adapter, port });
-    output({ action: "restore", appId: adapter.id, port, targets: results }, options.json);
+    output(await restoreSkin({ adapter, port }), options.json);
     return;
   }
   throw new Error(`Unknown command '${command}'. Run 'codedrobe help'.`);

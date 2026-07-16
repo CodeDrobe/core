@@ -9,3 +9,12 @@ test("probe documents and validates its configurable timeout", async () => {
     /integer from 250 to 300000 milliseconds/,
   );
 });
+
+test("DOM snapshot is documented and validates its node limit", async () => {
+  assert.match(HELP, /dom snapshot.+--max-nodes <count>.+--include-hidden/);
+  assert.match(HELP, /exclude text, input values, accessible names, links, and media sources/);
+  await assert.rejects(
+    runCli(["dom", "snapshot", "--app", "workbuddy", "--max-nodes", "10"]),
+    /integer from 50 to 5000/,
+  );
+});
