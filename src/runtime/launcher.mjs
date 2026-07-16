@@ -155,19 +155,19 @@ export async function launchApp({ adapter, port = adapter.defaultPort, appPath =
     }
   } catch { /* Launch when the endpoint is absent. */ }
 
+  if (!readyTargets.length && await isPortOccupied(port)) {
+    const error = new Error(`Port ${port} is already occupied by another process.`);
+    error.code = "CODEDROBE_PORT_OCCUPIED";
+    error.port = port;
+    throw error;
+  }
+
   const discovered = await discoverApp(adapter, process.platform, appPath);
   if (!discovered) {
     if (appPath) {
       throw new Error(`${adapter.displayName} executable was not found from --app-path '${path.resolve(expandPath(appPath))}'.`);
     }
     throw new Error(`${adapter.displayName} is not installed or could not be discovered.`);
-  }
-
-  if (!readyTargets.length && await isPortOccupied(port)) {
-    const error = new Error(`Port ${port} is already occupied by another process.`);
-    error.code = "CODEDROBE_PORT_OCCUPIED";
-    error.port = port;
-    throw error;
   }
 
   const runningPids = await findRunningPids(adapter, process.platform, discovered.executable);
