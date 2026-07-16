@@ -45,7 +45,11 @@ function desktopSection(content) {
 
 function replaceSectionBody(content, match, body) {
   const index = match.index + match[0].length - match.groups.body.length;
-  return content.slice(0, index) + body + content.slice(index + match.groups.body.length);
+  // Callers trim the body while rewriting settings. The captured body runs up to
+  // the next table header, so handing back an unterminated body would glue the
+  // last setting onto that header and produce invalid TOML.
+  const terminated = body && !body.endsWith("\n") ? `${body}\n` : body;
+  return content.slice(0, index) + terminated + content.slice(index + match.groups.body.length);
 }
 
 function settingPattern(key) {
