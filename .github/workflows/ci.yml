@@ -20,5 +20,6 @@ jobs:
           node-version: ${{ matrix.node }}
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
+      - run: npm ci
       - run: npm test
       - run: npm pack --dry-run

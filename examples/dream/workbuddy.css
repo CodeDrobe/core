@@ -6,18 +6,18 @@
 }
 
 html.codedrobe-host-workbuddy body,
-html.codedrobe-host-workbuddy .monaco-workbench {
+html.codedrobe-host-workbuddy .teams-container,
+html.codedrobe-host-workbuddy .teams-main-content {
   background-color: var(--codedrobe-surface);
   color: var(--codedrobe-ink);
 }
 
-html.codedrobe-host-workbuddy .part.sidebar,
-html.codedrobe-host-workbuddy [class*="sidebar"] {
+html.codedrobe-host-workbuddy .conversation-sidebar,
+html.codedrobe-host-workbuddy .conversation-list {
   background-color: var(--codedrobe-panel);
   backdrop-filter: blur(18px);
 }
 
-html.codedrobe-host-workbuddy textarea,
-html.codedrobe-host-workbuddy [contenteditable="true"] {
+html.codedrobe-host-workbuddy [role="textbox"][contenteditable="true"] {
   caret-color: var(--codedrobe-accent);
 }

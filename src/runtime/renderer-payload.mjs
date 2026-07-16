@@ -2,6 +2,115 @@ function safeHostClass(appId) {
   return `codedrobe-host-${String(appId).replace(/[^a-z0-9_-]/gi, "-")}`;
 }
 
+function buildCompatibilityProfile(adapter, themeVerification = null) {
+  const adapterProfile = adapter.verification ?? { rootAny: ["body"], required: [] };
+  const checks = (verification, scope, context = null) => [
+    ...(verification?.required ?? []).map((item) => ({ ...item, scope, context, severity: "required" })),
+    ...(verification?.recommended ?? []).map((item) => ({ ...item, scope, context, severity: "recommended" })),
+  ];
+  const contexts = (verification, scope) => (verification?.contexts ?? []).map((context) => ({
+    name: context.name,
+    scope,
+    whenAny: context.when.any,
+    checks: checks(context, scope, context.name),
+  }));
+  return {
+    rootAny: adapterProfile.rootAny ?? ["body"],
+    checks: [
+      ...checks(adapterProfile, "adapter"),
+      ...checks(themeVerification, "theme"),
+    ],
+    contexts: [
+      ...contexts(adapterProfile, "adapter"),
+      ...contexts(themeVerification, "theme"),
+    ],
+  };
+}
+
+function buildCompatibilityPrelude(adapter, themeVerification = null) {
+  const profile = JSON.stringify(buildCompatibilityProfile(adapter, themeVerification));
+  const appId = JSON.stringify(adapter.id);
+  return `
+    const appId = ${appId};
+    const profile = ${profile};
+    const inspect = (selector) => {
+      try { return { selector, node: document.querySelector(selector), valid: true, error: null }; }
+      catch (error) { return { selector, node: null, valid: false, error: error?.message ?? String(error) }; }
+    };
+    const visible = (node) => {
+      if (!node) return false;
+      const box = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return box.width > 0 && box.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    const evaluateSelectors = (selectors) => {
+      const inspected = selectors.map(inspect);
+      return {
+        matches: inspected.filter((item) => item.valid && visible(item.node)).map((item) => item.selector),
+        invalidSelectors: inspected.filter((item) => !item.valid).map((item) => ({ selector: item.selector, error: item.error })),
+      };
+    };
+    const root = evaluateSelectors(profile.rootAny);
+    const contexts = profile.contexts.map((context) => {
+      const trigger = evaluateSelectors(context.whenAny);
+      return {
+        scope: context.scope,
+        name: context.name,
+        active: trigger.matches.length > 0,
+        matches: trigger.matches,
+        selectors: context.whenAny,
+        invalidSelectors: trigger.invalidSelectors,
+      };
+    });
+    const activeContexts = new Set(contexts.filter((context) => context.active).map((context) => context.scope + ':' + context.name));
+    const checks = [
+      ...profile.checks,
+      ...profile.contexts.flatMap((context) => activeContexts.has(context.scope + ':' + context.name) ? context.checks : []),
+    ];
+    const requirements = checks.map((item) => {
+      const evaluated = evaluateSelectors(item.any);
+      return {
+        scope: item.scope,
+        context: item.context,
+        severity: item.severity,
+        name: item.name,
+        pass: evaluated.matches.length > 0,
+        matches: evaluated.matches,
+        selectors: item.any,
+        invalidSelectors: evaluated.invalidSelectors,
+      };
+    });
+    const diagnostic = (item) => ({
+      scope: item.scope,
+      context: item.context,
+      severity: item.severity,
+      name: item.name,
+      selectors: item.selectors,
+      invalidSelectors: item.invalidSelectors,
+    });
+    const missing = [];
+    const warnings = [];
+    if (!root.matches.length) missing.push({
+      scope: 'adapter', context: null, severity: 'required', name: 'root',
+      selectors: profile.rootAny, invalidSelectors: root.invalidSelectors,
+    });
+    for (const item of requirements) {
+      if (!item.pass && item.severity === 'required') missing.push(diagnostic(item));
+      if (!item.pass && item.severity === 'recommended') warnings.push(diagnostic(item));
+    }
+    const compatibility = {
+      appId,
+      compatible: missing.length === 0,
+      rootMatches: root.matches,
+      rootInvalidSelectors: root.invalidSelectors,
+      contexts,
+      requirements,
+      missing,
+      warnings,
+      viewport: { width: innerWidth, height: innerHeight },
+    };`;
+}
+
 export function buildApplyExpression({ adapter, targetTheme }) {
   const host = JSON.stringify({ id: adapter.id, className: safeHostClass(adapter.id) });
   const theme = JSON.stringify(targetTheme.theme);
@@ -81,41 +190,29 @@ export function buildRemoveExpression(adapter) {
   })()`;
 }
 
-export function buildVerifyExpression(adapter, expectedTheme = null) {
-  const profile = JSON.stringify(adapter.verification ?? { rootAny: ["body"], required: [] });
-  const appId = JSON.stringify(adapter.id);
+export function buildProbeExpression(adapter, themeVerification = null) {
+  return `(() => {
+    ${buildCompatibilityPrelude(adapter, themeVerification)}
+    return compatibility;
+  })()`;
+}
+
+export function buildVerifyExpression(adapter, expectedTheme = null, themeVerification = null) {
   const expected = JSON.stringify(expectedTheme);
   return `(() => {
-    const appId = ${appId};
-    const profile = ${profile};
+    ${buildCompatibilityPrelude(adapter, themeVerification)}
     const expected = ${expected};
-    const query = (selector) => { try { return document.querySelector(selector); } catch { return null; } };
-    const visible = (node) => {
-      if (!node) return false;
-      const box = node.getBoundingClientRect();
-      const style = getComputedStyle(node);
-      return box.width > 0 && box.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-    };
     const state = window.__CODEDROBE__?.hosts?.[appId];
-    const rootMatches = (profile.rootAny ?? ['body']).filter((selector) => visible(query(selector)));
-    const requirements = (profile.required ?? []).map((item) => {
-      const matches = item.any.filter((selector) => visible(query(selector)));
-      return { name: item.name, pass: matches.length > 0, matches };
-    });
     const result = {
+      ...compatibility,
       installed: Boolean(state),
-      appId,
       themeId: state?.themeId ?? null,
       version: state?.version ?? null,
       stylePresent: Boolean(document.getElementById('codedrobe-theme-style-' + appId)),
-      rootMatches,
-      requirements,
-      viewport: { width: innerWidth, height: innerHeight },
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
     };
     const themeMatches = !expected || (result.themeId === expected.id && result.version === expected.version);
-    result.pass = result.installed && result.stylePresent && rootMatches.length > 0 &&
-      requirements.every((item) => item.pass) && themeMatches && !result.horizontalOverflow;
+    result.pass = result.compatible && result.installed && result.stylePresent && themeMatches && !result.horizontalOverflow;
     return result;
   })()`;
 }

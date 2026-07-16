@@ -5,10 +5,40 @@
   "version": "1.0.0",
   "targets": {
     "codex": {
-      "css": "codex.css"
+      "css": "codex.css",
+      "verification": {
+        "contexts": [
+          {
+            "name": "home",
+            "when": {
+              "any": ["[role='main']:has([data-testid='home-icon'])"]
+            },
+            "recommended": [
+              {
+                "name": "home-suggestions",
+                "any": [".group\\/home-suggestions"]
+              }
+            ]
+          }
+        ]
+      }
     },
     "workbuddy": {
-      "css": "workbuddy.css"
+      "css": "workbuddy.css",
+      "verification": {
+        "required": [
+          {
+            "name": "chat-surface",
+            "any": [".chat-container", ".wb-cb-chat"]
+          }
+        ],
+        "recommended": [
+          {
+            "name": "conversation-list",
+            "any": [".conversation-list"]
+          }
+        ]
+      }
     }
   }
 }

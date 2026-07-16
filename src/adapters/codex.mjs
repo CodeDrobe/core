@@ -2,6 +2,9 @@ const codex = {
   id: "codex",
   displayName: "OpenAI Codex",
   defaultPort: 9335,
+  lastVerified: {
+    darwin: { appVersion: "26.707.72221", build: "5307", verifiedAt: "2026-07-16" },
+  },
   platforms: {
     darwin: {
       bundleId: "com.openai.codex",
@@ -19,10 +22,10 @@ const codex = {
     return target?.type === "page" && String(target.url ?? "").startsWith("app://");
   },
   verification: {
-    rootAny: ["main.main-surface", "main"],
+    rootAny: ["main.main-surface"],
     required: [
-      { name: "sidebar", any: ["aside.app-shell-left-panel", "aside"] },
-      { name: "composer", any: [".composer-surface-chrome", "[contenteditable='true']", "textarea"] },
+      { name: "sidebar", any: ["aside.app-shell-left-panel"] },
+      { name: "composer", any: [".composer-surface-chrome"] },
     ],
   },
 };

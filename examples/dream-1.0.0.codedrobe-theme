@@ -1,7 +1,7 @@
 {
   "format": "codedrobe-theme",
   "schemaVersion": 1,
-  "exportedAt": "2026-07-16T05:34:55.212Z",
+  "exportedAt": "2026-07-16T08:29:05.758Z",
   "theme": {
     "id": "dream",
     "displayName": "Dream Multi-App",
@@ -9,10 +9,49 @@
   },
   "targets": {
     "codex": {
-      "css": ":root.codedrobe-host-codex {\n  --codedrobe-surface: #fff4fa;\n  --codedrobe-panel: rgba(255, 255, 255, 0.78);\n  --codedrobe-accent: #b65cff;\n  --codedrobe-ink: #4a235f;\n}\n\nhtml.codedrobe-host-codex body {\n  background: radial-gradient(circle at 80% 10%, #f8dcff, transparent 36%), var(--codedrobe-surface);\n  color: var(--codedrobe-ink);\n}\n\nhtml.codedrobe-host-codex aside,\nhtml.codedrobe-host-codex .composer-surface-chrome {\n  background-color: var(--codedrobe-panel);\n  backdrop-filter: blur(18px);\n}\n"
+      "css": ":root.codedrobe-host-codex {\n  --codedrobe-surface: #fff4fa;\n  --codedrobe-panel: rgba(255, 255, 255, 0.78);\n  --codedrobe-accent: #b65cff;\n  --codedrobe-ink: #4a235f;\n}\n\nhtml.codedrobe-host-codex body {\n  background: radial-gradient(circle at 80% 10%, #f8dcff, transparent 36%), var(--codedrobe-surface);\n  color: var(--codedrobe-ink);\n}\n\nhtml.codedrobe-host-codex aside,\nhtml.codedrobe-host-codex .composer-surface-chrome {\n  background-color: var(--codedrobe-panel);\n  backdrop-filter: blur(18px);\n}\n",
+      "verification": {
+        "contexts": [
+          {
+            "name": "home",
+            "when": {
+              "any": [
+                "[role='main']:has([data-testid='home-icon'])"
+              ]
+            },
+            "recommended": [
+              {
+                "name": "home-suggestions",
+                "any": [
+                  ".group\\/home-suggestions"
+                ]
+              }
+            ]
+          }
+        ]
+      }
     },
     "workbuddy": {
-      "css": ":root.codedrobe-host-workbuddy {\n  --codedrobe-surface: #fff4fa;\n  --codedrobe-panel: rgba(255, 255, 255, 0.8);\n  --codedrobe-accent: #b65cff;\n  --codedrobe-ink: #4a235f;\n}\n\nhtml.codedrobe-host-workbuddy body,\nhtml.codedrobe-host-workbuddy .monaco-workbench {\n  background-color: var(--codedrobe-surface);\n  color: var(--codedrobe-ink);\n}\n\nhtml.codedrobe-host-workbuddy .part.sidebar,\nhtml.codedrobe-host-workbuddy [class*=\"sidebar\"] {\n  background-color: var(--codedrobe-panel);\n  backdrop-filter: blur(18px);\n}\n\nhtml.codedrobe-host-workbuddy textarea,\nhtml.codedrobe-host-workbuddy [contenteditable=\"true\"] {\n  caret-color: var(--codedrobe-accent);\n}\n"
+      "css": ":root.codedrobe-host-workbuddy {\n  --codedrobe-surface: #fff4fa;\n  --codedrobe-panel: rgba(255, 255, 255, 0.8);\n  --codedrobe-accent: #b65cff;\n  --codedrobe-ink: #4a235f;\n}\n\nhtml.codedrobe-host-workbuddy body,\nhtml.codedrobe-host-workbuddy .teams-container,\nhtml.codedrobe-host-workbuddy .teams-main-content {\n  background-color: var(--codedrobe-surface);\n  color: var(--codedrobe-ink);\n}\n\nhtml.codedrobe-host-workbuddy .conversation-sidebar,\nhtml.codedrobe-host-workbuddy .conversation-list {\n  background-color: var(--codedrobe-panel);\n  backdrop-filter: blur(18px);\n}\n\nhtml.codedrobe-host-workbuddy [role=\"textbox\"][contenteditable=\"true\"] {\n  caret-color: var(--codedrobe-accent);\n}\n",
+      "verification": {
+        "required": [
+          {
+            "name": "chat-surface",
+            "any": [
+              ".chat-container",
+              ".wb-cb-chat"
+            ]
+          }
+        ],
+        "recommended": [
+          {
+            "name": "conversation-list",
+            "any": [
+              ".conversation-list"
+            ]
+          }
+        ]
+      }
     }
   }
 }

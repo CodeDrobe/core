@@ -1,6 +1,6 @@
 {
   "name": "@codedrobe/core",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Cross-platform CodeDrobe runtime, CLI, app adapters, and .codedrobe-theme tooling.",
   "type": "module",
   "license": "Apache-2.0",
@@ -16,21 +16,36 @@
     "codedrobe": "bin/codedrobe.mjs"
   },
   "exports": {
-    ".": "./src/index.mjs",
-    "./adapters": "./src/adapters/index.mjs",
-    "./theme": "./src/theme/package.mjs"
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.mjs"
+    },
+    "./adapters": {
+      "types": "./types/adapters.d.ts",
+      "default": "./src/adapters/index.mjs"
+    },
+    "./theme": {
+      "types": "./types/theme.d.ts",
+      "default": "./src/theme/index.mjs"
+    }
   },
+  "types": "./types/index.d.ts",
   "files": [
     "LICENSE",
     "NOTICE",
     "README.md",
     "bin",
     "src",
+    "types",
     "README_zh.md"
   ],
   "scripts": {
-    "test": "node --test",
+    "test": "node --test && npm run typecheck",
+    "typecheck": "tsc -p tests/types/tsconfig.json",
     "pack:check": "npm pack --dry-run"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
   },
   "engines": {
     "node": ">=22.4"

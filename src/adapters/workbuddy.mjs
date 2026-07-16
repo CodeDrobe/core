@@ -2,6 +2,9 @@ const workbuddy = {
   id: "workbuddy",
   displayName: "Tencent WorkBuddy",
   defaultPort: 9336,
+  lastVerified: {
+    darwin: { appVersion: "5.2.6", build: "5.2.6", verifiedAt: "2026-07-16" },
+  },
   platforms: {
     darwin: {
       bundleId: "com.workbuddy.workbuddy",
@@ -23,14 +26,16 @@ const workbuddy = {
     const url = String(target.url ?? "");
     if (/^(devtools|chrome-extension):/i.test(url)) return false;
     return /workbuddy/i.test(String(target.title ?? "")) ||
-      /^(workbuddy|vscode-file|file):/i.test(url) ||
+      /app\.asar\/renderer\/index\.html$/i.test(url) ||
+      /^(workbuddy|vscode-file):/i.test(url) ||
       /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(url);
   },
   verification: {
-    rootAny: [".monaco-workbench", "[class*='workbench']", "main"],
+    rootAny: ["#root > .teams-container", ".teams-container", "#root"],
     required: [
-      { name: "workspace", any: [".monaco-workbench", "[class*='workbench']", "main"] },
-      { name: "input", any: ["[contenteditable='true']", "textarea", "input[type='text']"] },
+      { name: "sidebar", any: [".conversation-sidebar", ".conversation-list"] },
+      { name: "workspace", any: [".teams-main-content", ".main-content", ".chat-container"] },
+      { name: "composer", any: ["[role='textbox'][contenteditable='true']", ".wb-home-composer [contenteditable='true']"] },
     ],
   },
 };
