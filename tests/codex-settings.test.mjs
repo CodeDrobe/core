@@ -104,3 +104,14 @@ test("Codex base theme apply is transactional and restore consumes the backup", 
   assert.match(await fs.readFile(configPath, "utf8"), /unrelated = true/);
   await assert.rejects(() => fs.access(backupPath), /ENOENT/);
 });
+
+test("Codex settings keep the desktop table terminated when the backup has no managed keys", () => {
+  const pristine = `model = "gpt"\n\n[desktop]\nunrelated = true\ndock-icon-preference = "codex-system"\n\n[desktop.open-in-target-preferences]\nglobal = "cursor"\n`;
+  const settings = buildCodexBaseThemeSettings(targetTheme.options.baseTheme, "darwin");
+  const applied = applyCodexSettings(pristine, settings);
+  const restored = restoreCodexSettings(applied, pristine);
+
+  assert.match(restored, /^dock-icon-preference = "codex-system"$/m);
+  assert.match(restored, /^\[desktop\.open-in-target-preferences\]$/m);
+  assert.match(restored, /\[desktop\.open-in-target-preferences\]\nglobal = "cursor"/);
+});
