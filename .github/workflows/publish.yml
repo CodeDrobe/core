@@ -32,4 +32,17 @@ jobs:
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           test "v${PACKAGE_VERSION}" = "${RELEASE_TAG}"
 
-      - run: npm publish --access public
+      - name: Check whether version is already published
+        id: npm-version
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish package
+        if: steps.npm-version.outputs.publish == 'true'
+        run: npm publish --access public

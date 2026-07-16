@@ -5,15 +5,15 @@ Multi-app theming CLI and runtime for supported Chromium/Electron desktop applic
 [中文文档](./README_zh.md)
 
 ```bash
-npx --yes --package=@codedrobe/core@0.1.0 codedrobe apps
-npx --yes --package=@codedrobe/core@0.1.0 codedrobe detect
-npx --yes --package=@codedrobe/core@0.1.0 codedrobe apply --app workbuddy --theme /absolute/theme.codedrobe-theme
+npx --yes --package=@codedrobe/core@0.1.1 codedrobe apps
+npx --yes --package=@codedrobe/core@0.1.1 codedrobe detect
+npx --yes --package=@codedrobe/core@0.1.1 codedrobe apply --app workbuddy --theme /absolute/theme.codedrobe-theme
 ```
 
 Bun is supported as a CLI runtime:
 
 ```bash
-bunx --package @codedrobe/core@0.1.0 codedrobe apps
+bunx --package @codedrobe/core@0.1.1 codedrobe apps
 ```
 
 Applications can consume the same package as an ES module:

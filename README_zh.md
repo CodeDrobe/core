@@ -22,8 +22,8 @@ codedrobe apps
 无需全局安装：
 
 ```bash
-npx --yes --package=@codedrobe/core@0.1.0 codedrobe apps
-bunx --package @codedrobe/core@0.1.0 codedrobe apps
+npx --yes --package=@codedrobe/core@0.1.1 codedrobe apps
+bunx --package @codedrobe/core@0.1.1 codedrobe apps
 ```
 
 在源码仓库中也可以直接通过 Bun 运行：
