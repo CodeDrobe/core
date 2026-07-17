@@ -8,6 +8,7 @@ import { applySkin, restoreSkin } from "./runtime/skin.mjs";
 import { lintThemePackage, readThemePackage, resolveThemeTarget, writeThemePackage } from "./theme/package.mjs";
 import { convertLegacyThemeFile } from "./theme/legacy.mjs";
 import { checkForUpdate, detectPackageManager, formatCommand, getUpdateCommand, maybeNotifyUpdate, updateCodeDrobe } from "./update.mjs";
+import { runAuthCommand } from "./auth/commands.mjs";
 import { VERSION } from "./version.mjs";
 
 const HELP = `CodeDrobe multi-app theming CLI
@@ -22,6 +23,9 @@ Usage:
   codedrobe verify --app <id> [--theme <file.codedrobe-theme>] [--port <port>] [--screenshot <png>]
   codedrobe restore --app <id> [--port <port>]
   codedrobe update [--check] [--json]
+  codedrobe auth login [--scopes <s1,s2>] [--no-open] [--json]
+  codedrobe auth status [--json]
+  codedrobe auth logout [--json]
   codedrobe theme inspect <file.codedrobe-theme>
   codedrobe theme pack <manifest.json> --output <file.codedrobe-theme> [--force]
   codedrobe theme convert <file.codex-theme> --output <file.codedrobe-theme> [--force]
@@ -30,12 +34,14 @@ Safety:
   Existing apps are never restarted unless --restart-existing is provided.
   CDP is always bound to 127.0.0.1 by the launcher.
   DOM snapshots exclude text, input values, accessible names, links, and media sources.
-  --app-path accepts an app bundle, installation directory, or executable file.`;
+  --app-path accepts an app bundle, installation directory, or executable file.
+  Auth stores a rotating refresh token in ~/.codedrobe/credentials.json (0600).
+  Set CODEDROBE_API_BASE to target a non-production CodeDrobe deployment.`;
 
 function parseArguments(argv) {
   const options = {};
   const positional = [];
-  const boolean = new Set(["json", "watch", "restart-existing", "no-launch", "force", "check", "help", "version", "include-hidden"]);
+  const boolean = new Set(["json", "watch", "restart-existing", "no-launch", "force", "check", "help", "version", "include-hidden", "no-open"]);
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (!value.startsWith("--")) {
@@ -346,6 +352,7 @@ async function dispatchCli(positional, options) {
   if (command === "dom") return runDomCommand(positional, options);
   if (command === "theme") return runThemeCommand(positional, options);
   if (command === "update") return runUpdate(options);
+  if (command === "auth") return runAuthCommand(positional.slice(1), options);
 
   const adapter = getAdapter(requireOption(options, "app"));
   const port = parsePort(options.port, adapter.defaultPort);
