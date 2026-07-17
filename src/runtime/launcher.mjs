@@ -173,7 +173,11 @@ export async function launchApp({ adapter, port = adapter.defaultPort, appPath =
   const runningPids = await findRunningPids(adapter, process.platform, discovered.executable);
   if (runningPids.length) {
     if (!restartExisting) {
-      throw new Error(`${adapter.displayName} is already running without CodeDrobe on port ${port}. Close it or pass --restart-existing.`);
+      const error = new Error(`${adapter.displayName} is already running without CodeDrobe on port ${port}. Close it or pass --restart-existing.`);
+      error.code = "CODEDROBE_RESTART_REQUIRED";
+      error.appId = adapter.id;
+      error.port = port;
+      throw error;
     }
     await stopExisting(adapter, runningPids, process.platform, discovered.executable);
   }
