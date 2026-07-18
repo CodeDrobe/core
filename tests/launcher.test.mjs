@@ -12,7 +12,9 @@ function portFileAdapter(portFile) {
     id: "portfile-test",
     displayName: "PortFile Test",
     defaultPort: 9440,
-    platforms: { darwin: { devToolsActivePortFile: portFile } },
+    // launchApp resolves port files for process.platform, so the config must
+    // live under the platform the test actually runs on (CI is Linux).
+    platforms: { [process.platform]: { devToolsActivePortFile: portFile } },
     matchTarget(target) {
       return target?.type === "page" && /portfile-test/.test(String(target.url ?? ""));
     },
@@ -52,16 +54,16 @@ test("resolveDebugPort reads the DevToolsActivePort file and rejects garbage", a
   const portFile = path.join(directory, "DevToolsActivePort");
 
   const adapter = portFileAdapter(portFile);
-  assert.equal(await resolveDebugPort(adapter, "darwin"), null, "missing file resolves to null");
+  assert.equal(await resolveDebugPort(adapter, process.platform), null, "missing file resolves to null");
 
   await fs.writeFile(portFile, "51234\n/devtools/browser/abc-def\n");
-  assert.equal(await resolveDebugPort(adapter, "darwin"), 51234);
+  assert.equal(await resolveDebugPort(adapter, process.platform), 51234);
 
   await fs.writeFile(portFile, "not-a-port\n");
-  assert.equal(await resolveDebugPort(adapter, "darwin"), null, "garbage resolves to null");
+  assert.equal(await resolveDebugPort(adapter, process.platform), null, "garbage resolves to null");
 
   await fs.writeFile(portFile, "80\n");
-  assert.equal(await resolveDebugPort(adapter, "darwin"), null, "privileged ports are rejected");
+  assert.equal(await resolveDebugPort(adapter, process.platform), null, "privileged ports are rejected");
 
   assert.equal(await resolveDebugPort(getAdapter("workbuddy"), "darwin"), null, "adapters without a port file resolve to null");
 });
