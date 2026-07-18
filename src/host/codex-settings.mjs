@@ -36,11 +36,16 @@ export function buildCodexBaseThemeSettings(baseTheme = {}, platform = process.p
   };
 }
 
+// Codex's own writer (and hand edits) can leave whitespace inside table
+// headers, e.g. `[desktop.appearanceLightChromeTheme ]` — every header
+// pattern here must tolerate it or stale tables survive each apply.
+const DESKTOP_SECTION = /^\[\s*desktop\s*\]\s*\r?\n(?<body>.*?)(?=^\[|(?![\s\S]))/ms;
+
 function desktopSection(content) {
-  const match = /^\[desktop\]\s*\r?\n(?<body>.*?)(?=^\[|(?![\s\S]))/ms.exec(content);
+  const match = DESKTOP_SECTION.exec(content);
   if (match) return { content, match };
   const next = `${content.trimEnd()}\n\n[desktop]\n`;
-  return { content: next, match: /^\[desktop\]\s*\r?\n(?<body>.*?)(?=^\[|(?![\s\S]))/ms.exec(next) };
+  return { content: next, match: DESKTOP_SECTION.exec(next) };
 }
 
 function replaceSectionBody(content, match, body) {
@@ -63,7 +68,7 @@ function replaceUniqueSetting(body, key, line) {
 }
 
 function managedChromeTablePattern() {
-  return /^\[desktop\.appearanceLightChromeTheme(?:\.[^\]]+)?\]\s*\r?\n.*?(?=^\[|(?![\s\S]))/gms;
+  return /^\[\s*desktop\.appearanceLightChromeTheme(?:\.[^\]\s]+)?\s*\]\s*\r?\n.*?(?=^\[|(?![\s\S]))/gms;
 }
 
 function removeManagedChromeTables(content) {
@@ -86,7 +91,7 @@ function removeMisplacedRootSettings(content, keys) {
 }
 
 function mergeDesktopSections(content) {
-  const pattern = /^\[desktop\]\s*\r?\n(?<body>.*?)(?=^\[|(?![\s\S]))/gms;
+  const pattern = /^\[\s*desktop\s*\]\s*\r?\n(?<body>.*?)(?=^\[|(?![\s\S]))/gms;
   const matches = [...content.matchAll(pattern)];
   if (matches.length <= 1) return content;
   const body = matches.map((match) => match.groups.body.trim()).filter(Boolean).join("\n");
@@ -114,7 +119,7 @@ export function restoreCodexSettings(current, backup, keys = CODEX_MANAGED_SETTI
   const currentSection = desktopSection(mergeDesktopSections(
     removeMisplacedRootSettings(removeManagedChromeTables(current), keys),
   ));
-  const backupMatch = /^\[desktop\]\s*\r?\n(?<body>.*?)(?=^\[|(?![\s\S]))/ms.exec(backup);
+  const backupMatch = DESKTOP_SECTION.exec(backup);
   let body = currentSection.match.groups.body;
   const savedBody = backupMatch?.groups.body ?? "";
   for (const key of keys) {

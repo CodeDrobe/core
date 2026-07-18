@@ -76,6 +76,33 @@ test("Codex settings preserve unrelated tables and expanded Chrome theme tables"
   assert.doesNotMatch(restored, /appearanceLightChromeTheme = \{/);
 });
 
+test("Codex settings clean up stale chrome tables with whitespace in the header", () => {
+  // Seen in the field: an inline value from a previous apply coexisting with a
+  // stale `[desktop.appearanceLightChromeTheme ]` table (note the space before
+  // the bracket) that the old header pattern failed to remove — invalid TOML
+  // where the stale table can override the freshly applied theme.
+  const conflicted = [
+    "[desktop]",
+    'appearanceTheme = "light"',
+    'appearanceLightChromeTheme = { accent = "#16BFC4", contrast = 78 }',
+    "[desktop.appearanceLightChromeTheme ]",
+    'accent = "#0169cc"',
+    "contrast = 78",
+    'surface = "#ffffff"',
+    "",
+    "[desktop.open-in-target-preferences]",
+    'global = "terminal"',
+    "",
+  ].join("\n");
+  const settings = buildCodexBaseThemeSettings(targetTheme.options.baseTheme, "darwin");
+  const applied = applyCodexSettings(conflicted, settings);
+
+  assert.doesNotMatch(applied, /^\[\s*desktop\.appearanceLightChromeTheme/m);
+  assert.doesNotMatch(applied, /#0169cc/);
+  assert.equal(applied.match(/^appearanceLightChromeTheme = \{/gm)?.length, 1);
+  assert.match(applied, /\[desktop\.open-in-target-preferences\]\nglobal = "terminal"/);
+});
+
 test("Codex base theme apply is transactional and restore consumes the backup", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "codedrobe-codex-settings-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
