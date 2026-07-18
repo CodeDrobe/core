@@ -62,15 +62,26 @@ async function discoverCustom(adapter, config, appPath, platform) {
 
 async function discoverMac(adapter, config) {
   const candidates = config.appCandidates.map(expandPath);
-  if (config.bundleId) {
+  const bundleIds = [...new Set([config.bundleId, ...(config.bundleIds ?? [])].filter(Boolean))];
+  if (bundleIds.length) {
+    const query = bundleIds.map((id) => `kMDItemCFBundleIdentifier == "${id}"`).join(" || ");
     try {
-      const { stdout } = await execFileAsync("mdfind", [`kMDItemCFBundleIdentifier == "${config.bundleId}"`]);
+      const { stdout } = await execFileAsync("mdfind", [query]);
       candidates.push(...stdout.split(/\r?\n/).filter(Boolean));
     } catch { /* Candidate paths still work when Spotlight is unavailable. */ }
   }
   for (const appPath of [...new Set(candidates)]) {
-    const executable = path.join(appPath, config.executableRelative);
-    if (await isExecutable(executable)) return { appId: adapter.id, appPath, executable };
+    // Multi-edition apps name the binary after the bundle ("QoderWork CN.app"
+    // -> "QoderWork CN"), so derive that candidate when the configured
+    // relative path does not resolve.
+    const relatives = [...new Set([
+      ...(config.executableRelative ? [config.executableRelative] : []),
+      path.join("Contents/MacOS", path.basename(appPath, ".app")),
+    ])];
+    for (const relative of relatives) {
+      const executable = path.join(appPath, relative);
+      if (await isExecutable(executable)) return { appId: adapter.id, appPath, executable };
+    }
   }
   return null;
 }
@@ -151,6 +162,41 @@ export async function discoverApp(adapter, platform = process.platform, appPath 
   return null;
 }
 
+async function readDebugPortFile(portFile) {
+  try {
+    const raw = await fs.readFile(path.resolve(expandPath(portFile)), "utf8");
+    const port = Number(raw.split(/\r?\n/, 1)[0].trim());
+    return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Some hosts (e.g. QoderWork) force `remote-debugging-port=0` in their main
+ * process, so a caller-chosen port never binds and the real CDP port is only
+ * published through Chromium's DevToolsActivePort file in the user-data
+ * directory. Multi-edition apps (CN/global) keep separate user-data
+ * directories, so the config accepts one path or a list. Explicit
+ * user-selected ports always take precedence over this discovery; callers
+ * must confirm each port serves matching targets before trusting it, because
+ * the files survive the processes that wrote them.
+ */
+export async function resolveDebugPorts(adapter, platform = process.platform) {
+  const configured = adapter.platforms[platform]?.devToolsActivePortFile;
+  const portFiles = Array.isArray(configured) ? configured : configured ? [configured] : [];
+  const ports = [];
+  for (const portFile of portFiles) {
+    const port = await readDebugPortFile(portFile);
+    if (port != null && !ports.includes(port)) ports.push(port);
+  }
+  return ports;
+}
+
+export async function resolveDebugPort(adapter, platform = process.platform) {
+  return (await resolveDebugPorts(adapter, platform))[0] ?? null;
+}
+
 export async function findRunningPids(adapter, platform = process.platform, executablePath = null) {
   const config = adapter.platforms[platform];
   if (!config) return [];
@@ -203,13 +249,21 @@ async function stopExisting(adapter, pids, platform = process.platform, executab
 }
 
 export async function launchApp({ adapter, port = adapter.defaultPort, appPath = null, profilePath = null, restartExisting = false, timeoutMs = 30000 }) {
+  const filePorts = await resolveDebugPorts(adapter, process.platform);
+  const readyCandidates = [...new Set([port, ...filePorts])];
   let readyTargets = [];
-  try {
-    readyTargets = await findTargets(adapter, port);
-    if (readyTargets.length && !restartExisting) {
-      return { appId: adapter.id, port, alreadyReady: true, targets: readyTargets.length };
-    }
-  } catch { /* Launch when the endpoint is absent. */ }
+  for (const candidate of readyCandidates) {
+    try {
+      const targets = await findTargets(adapter, candidate);
+      if (targets.length) {
+        if (!restartExisting) {
+          return { appId: adapter.id, port: candidate, alreadyReady: true, targets: targets.length };
+        }
+        readyTargets = targets;
+        break;
+      }
+    } catch { /* Launch when the endpoint is absent. */ }
+  }
 
   if (!readyTargets.length && await isPortOccupied(port)) {
     const error = new Error(`Port ${port} is already occupied by another process.`);
@@ -263,12 +317,17 @@ export async function launchApp({ adapter, port = adapter.defaultPort, appPath =
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    try {
-      const targets = await findTargets(adapter, port);
-      if (targets.length) {
-        return { appId: adapter.id, port, executable: discovered.executable, pid: child.pid, targets: targets.length };
-      }
-    } catch { /* Wait for the CDP endpoint. */ }
+    // Re-read the port files each cycle: hosts that force an ephemeral debug
+    // port rewrite them during boot, after which the requested port stays dead.
+    const bootFilePorts = await resolveDebugPorts(adapter, process.platform);
+    for (const candidate of [...new Set([port, ...bootFilePorts])]) {
+      try {
+        const targets = await findTargets(adapter, candidate);
+        if (targets.length) {
+          return { appId: adapter.id, port: candidate, executable: discovered.executable, pid: child.pid, targets: targets.length };
+        }
+      } catch { /* Wait for the CDP endpoint. */ }
+    }
     await delay(400);
   }
   throw new Error(`${adapter.displayName} did not expose a matching CDP target on port ${port}.`);

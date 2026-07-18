@@ -5,15 +5,15 @@ Multi-app theming CLI and runtime for supported Chromium/Electron desktop applic
 [中文文档](./README_zh.md)
 
 ```bash
-npx --yes --package=@codedrobe/core@0.4.0 codedrobe apps
-npx --yes --package=@codedrobe/core@0.4.0 codedrobe detect
-npx --yes --package=@codedrobe/core@0.4.0 codedrobe apply --app workbuddy --theme /absolute/theme.codedrobe-theme
+npx --yes --package=@codedrobe/core@0.6.0 codedrobe apps
+npx --yes --package=@codedrobe/core@0.6.0 codedrobe detect
+npx --yes --package=@codedrobe/core@0.6.0 codedrobe apply --app workbuddy --theme /absolute/theme.codedrobe-theme
 ```
 
 Bun is supported as a CLI runtime:
 
 ```bash
-bunx --package @codedrobe/core@0.4.0 codedrobe apps
+bunx --package @codedrobe/core@0.6.0 codedrobe apps
 ```
 
 Check for or install the latest global CLI version:
@@ -47,7 +47,7 @@ Applications should normally use the high-level `applySkin()` and `restoreSkin()
 
 The package ships TypeScript declarations for the root API and the `@codedrobe/core/adapters` and `@codedrobe/core/theme` subpath exports.
 
-Built-in adapters currently include `codex` and `workbuddy`. Existing applications are never restarted unless `--restart-existing` is explicitly provided.
+Built-in adapters currently include `codex`, `workbuddy`, `qoderwork` (QoderWork CN and global editions, macOS and Windows), and `traework` (TRAE SOLO global and CN editions, macOS and Windows). Existing applications are never restarted unless `--restart-existing` is explicitly provided.
 
 Codex hot-reloads the managed appearance settings, so switching between Codex themes never requires a restart on its own. A restart is only required when the application is already running without the CDP debugging flag: Core returns `CODEDROBE_RESTART_REQUIRED` and leaves the app untouched unless `--restart-existing` is explicit. Manually restarting the app never enables theming — the debugging flag can only be set by a CodeDrobe-driven launch.
 
@@ -161,4 +161,8 @@ Converted Codex themes select a trusted renderer profile supplied by Core. It re
 
 For Codex themes with `baseTheme`, `applySkin()` changes only the three managed appearance keys under `[desktop]` in `~/.codex/config.toml`. Restore merges those keys from `config.before-codedrobe.toml` and preserves unrelated edits. The default backup path remains compatible with the old Skill (`~/Library/Application Support/CodeDrobe/` on macOS and `%LOCALAPPDATA%\CodeDrobe\` on Windows), and `restoreSkin()` can recover host settings even while Codex/CDP is offline.
 
-The Codex adapter was last verified against macOS app version `26.707.72221` (build `5307`) on 2026-07-16, and the WorkBuddy adapter against `5.2.6` on macOS (2026-07-16) and Windows (2026-07-18). WorkBuddy passed the full launch/probe/apply/verify/screenshot/restore flow on both platforms; the Microsoft Store build of Codex passed the apply/restart flow on Windows. Use `codedrobe apps --json` to read this metadata.
+The Codex adapter was last verified against macOS app version `26.707.72221` (build `5307`) on 2026-07-16, and the WorkBuddy adapter against `5.2.6` on macOS (2026-07-16) and Windows (2026-07-18). WorkBuddy passed the full launch/probe/apply/verify/screenshot/restore flow on both platforms; the Microsoft Store build of Codex passed the apply/restart flow on Windows. The QoderWork adapter was verified against the CN edition, macOS app version `0.9.12`, on 2026-07-19 through the probe/apply/verify/screenshot/replace/restore flow on the home, conversation, and settings routes. Support for the global macOS edition and both Windows editions is based on static extraction of the official `0.9.12` installers (byte-identical renderer stylesheets and identical landmark class inventories) and has not yet passed a real-app run. Use `codedrobe apps --json` to read this metadata.
+
+QoderWork forces `remote-debugging-port=0` in its main process in every edition, so a caller-chosen port never binds. Core reads the live port from the per-edition `DevToolsActivePort` files automatically whenever `--port` is omitted; an explicit `--port` always wins.
+
+The TRAE SOLO adapter was verified against the global edition, macOS app version `0.1.36` (Code-OSS commit `ce5758dc`), on 2026-07-19 through the probe/apply/verify/screenshot/replace/restore flow across the Work, Code, and Design home routes and a task conversation. Support for the CN edition (`TRAE SOLO CN.app`, `cn.trae.solo.app`) and both Windows editions is based on static extraction of the official `0.1.36` installers — same Code-OSS commit and a byte-identical solo-lite UI stylesheet — and has not yet passed a real-app run. TRAE SOLO is a VS Code derivative, but its main window is the custom solo-lite shell rather than the Monaco workbench; it accepts a standard `--remote-debugging-port` launch. On Windows it installs via Inno Setup, so discovery probes the product AppId uninstall keys (`{GUID}_is1`).

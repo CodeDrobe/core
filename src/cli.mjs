@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { getAdapter, listAdapters } from "./adapters/index.mjs";
-import { discoverApp, findRunningPids, launchApp } from "./runtime/launcher.mjs";
+import { discoverApp, findRunningPids, launchApp, resolveDebugPorts } from "./runtime/launcher.mjs";
 import { DOM_SNAPSHOT_DEFAULT_MAX_NODES, DOM_SNAPSHOT_MAX_NODES } from "./runtime/dom-snapshot.mjs";
-import { captureScreenshot, probeApp, snapshotDom, verifyTheme, watchTheme } from "./runtime/injector.mjs";
+import { captureScreenshot, findTargets, probeApp, snapshotDom, verifyTheme, watchTheme } from "./runtime/injector.mjs";
 import { applySkin, restoreSkin } from "./runtime/skin.mjs";
 import { lintThemePackage, readThemePackage, resolveThemeTarget, writeThemePackage } from "./theme/package.mjs";
 import { publishThemePackage } from "./theme/publish.mjs";
@@ -215,6 +215,22 @@ function parsePort(value, fallback) {
   return port;
 }
 
+/**
+ * Hosts that force an ephemeral debug port publish the live port through
+ * DevToolsActivePort. An explicit --port always wins; a file port is only
+ * trusted while it serves targets matching the adapter, because the files
+ * outlive the processes that wrote them.
+ */
+async function resolveSessionPort(options, adapter) {
+  if (options.port !== undefined) return parsePort(options.port, adapter.defaultPort);
+  for (const filePort of await resolveDebugPorts(adapter, process.platform)) {
+    try {
+      if ((await findTargets(adapter, filePort)).length) return filePort;
+    } catch { /* Try the next candidate, then the adapter default port. */ }
+  }
+  return adapter.defaultPort;
+}
+
 function parseTimeout(value, fallback) {
   const timeoutMs = value === undefined ? fallback : Number(value);
   if (!Number.isInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 300000) {
@@ -301,7 +317,7 @@ async function loadTargetTheme(themeFilename, appId) {
 
 async function runApply(options) {
   const adapter = getAdapter(requireOption(options, "app"));
-  const port = parsePort(options.port, adapter.defaultPort);
+  const port = await resolveSessionPort(options, adapter);
   const { targetTheme } = await loadTargetTheme(requireOption(options, "theme"), adapter.id);
   const result = await applySkin({
     adapter,
@@ -317,7 +333,9 @@ async function runApply(options) {
     await watchTheme({
       adapter,
       targetTheme,
-      port,
+      // Follow the port the skin actually applied on: launch may have found
+      // the app on a host-chosen debug port instead of the requested one.
+      port: result.port ?? port,
       onEvent: (event) => output(event, options.json),
     });
   }
@@ -325,7 +343,7 @@ async function runApply(options) {
 
 async function runProbe(options) {
   const adapter = getAdapter(requireOption(options, "app"));
-  const port = parsePort(options.port, adapter.defaultPort);
+  const port = await resolveSessionPort(options, adapter);
   const timeoutMs = parseTimeout(options["timeout-ms"], 5000);
   const targetTheme = options.theme ? (await loadTargetTheme(options.theme, adapter.id)).targetTheme : null;
   if (!options.json) {
@@ -347,7 +365,7 @@ async function runProbe(options) {
 async function runDomCommand(positional, options) {
   if (positional[1] !== "snapshot") throw new Error("DOM command must be 'snapshot'.");
   const adapter = getAdapter(requireOption(options, "app"));
-  const port = parsePort(options.port, adapter.defaultPort);
+  const port = await resolveSessionPort(options, adapter);
   const timeoutMs = parseTimeout(options["timeout-ms"], 5000);
   const maxNodes = parseMaxNodes(options["max-nodes"]);
   if (!options.json) {
@@ -396,7 +414,7 @@ async function runDomCommand(positional, options) {
 
 async function runVerify(options) {
   const adapter = getAdapter(requireOption(options, "app"));
-  const port = parsePort(options.port, adapter.defaultPort);
+  const port = await resolveSessionPort(options, adapter);
   const targetTheme = options.theme ? (await loadTargetTheme(options.theme, adapter.id)).targetTheme : null;
   const results = await verifyTheme({ adapter, targetTheme, port });
   const screenshot = options.screenshot
@@ -568,11 +586,12 @@ async function dispatchCli(positional, options) {
   if (command === "auth") return runAuthCommand(positional.slice(1), options);
 
   const adapter = getAdapter(requireOption(options, "app"));
-  const port = parsePort(options.port, adapter.defaultPort);
   if (command === "launch") {
+    // launchApp resolves host-published debug ports itself, so only the
+    // explicit request is forwarded here.
     const result = await launchApp({
       adapter,
-      port,
+      port: parsePort(options.port, adapter.defaultPort),
       appPath: options["app-path"],
       profilePath: options.profile,
       restartExisting: Boolean(options["restart-existing"]),
@@ -584,7 +603,7 @@ async function dispatchCli(positional, options) {
   if (command === "apply") return runApply(options);
   if (command === "verify") return runVerify(options);
   if (command === "restore" || command === "remove") {
-    output(await restoreSkin({ adapter, port }), options.json);
+    output(await restoreSkin({ adapter, port: await resolveSessionPort(options, adapter) }), options.json);
     return;
   }
   throw new Error(`Unknown command '${command}'. Run 'codedrobe help'.`);

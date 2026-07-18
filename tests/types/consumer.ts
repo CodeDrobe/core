@@ -4,6 +4,8 @@ import {
   getAdapter,
   launchApp,
   probeApp,
+  resolveDebugPort,
+  resolveDebugPorts,
   restoreSkin,
   snapshotDom,
   watchTheme,
@@ -43,6 +45,10 @@ void imageUrls;
 const warnings: ThemeLintWarning[] = [];
 void warnings;
 void launchApp({ adapter, port: 9444, appPath: "/Applications/ChatGPT.app" });
+const resolvedPort: Promise<number | null> = resolveDebugPort(adapter, "darwin");
+void resolvedPort;
+const resolvedPorts: Promise<number[]> = resolveDebugPorts(adapter, "darwin");
+void resolvedPorts;
 void probeApp({ adapter, port: 9444, targetTheme: target, timeoutMs: 5000 });
 void snapshotDom({ adapter, port: 9444, timeoutMs: 5000, maxNodes: 800 });
 void applySkin({ adapter, targetTheme: target, port: 9444, launch: false });

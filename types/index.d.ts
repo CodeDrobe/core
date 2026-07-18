@@ -30,12 +30,20 @@ export interface VerificationProfile {
 
 export interface AdapterPlatformConfig {
   bundleId?: string;
+  /** Additional bundle identifiers for multi-edition apps (e.g. CN/global). */
+  bundleIds?: string[];
   appCandidates?: string[];
   appxPackage?: string;
   executableRelative?: string;
   executableCandidates?: string[];
   processMarkers?: string[];
   processNames?: string[];
+  /**
+   * Chromium DevToolsActivePort file(s) for hosts that force an ephemeral
+   * debug port; multi-edition apps list one file per user-data directory.
+   * Explicit user-selected ports always win over this discovery.
+   */
+  devToolsActivePortFile?: string | string[];
 }
 
 export interface AdapterVerificationRecord {
@@ -422,6 +430,8 @@ export function registerAdapter(adapter: AppAdapter): void;
 export function listCdpTargets(port: number, timeoutMs?: number): Promise<CdpTarget[]>;
 export function discoverApp(adapter: AppAdapter, platform?: string, appPath?: string | null): Promise<AppInstallation | null>;
 export function findRunningPids(adapter: AppAdapter, platform?: string, executablePath?: string | null): Promise<number[]>;
+export function resolveDebugPort(adapter: AppAdapter, platform?: string): Promise<number | null>;
+export function resolveDebugPorts(adapter: AppAdapter, platform?: string): Promise<number[]>;
 export function launchApp(options: LaunchOptions): Promise<LaunchResult>;
 export function findTargets(adapter: AppAdapter, port: number, timeoutMs?: number): Promise<CdpTarget[]>;
 export function waitForTargets(adapter: AppAdapter, port: number, timeoutMs?: number): Promise<CdpTarget[]>;

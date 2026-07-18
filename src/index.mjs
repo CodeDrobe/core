@@ -1,6 +1,6 @@
 export { getAdapter, listAdapters, registerAdapter } from "./adapters/index.mjs";
 export { CdpSession, listCdpTargets } from "./cdp/session.mjs";
-export { discoverApp, findRunningPids, launchApp } from "./runtime/launcher.mjs";
+export { discoverApp, findRunningPids, launchApp, resolveDebugPort, resolveDebugPorts } from "./runtime/launcher.mjs";
 export { DOM_SNAPSHOT_DEFAULT_MAX_NODES, DOM_SNAPSHOT_MAX_NODES } from "./runtime/dom-snapshot.mjs";
 export { applyTheme, captureScreenshot, findTargets, probeApp, removeTheme, snapshotDom, verifyTheme, waitForTargets, watchTheme } from "./runtime/injector.mjs";
 export { applySkin, restoreSkin } from "./runtime/skin.mjs";

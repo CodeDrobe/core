@@ -1,7 +1,9 @@
 import codex from "./codex.mjs";
 import workbuddy from "./workbuddy.mjs";
+import qoderwork from "./qoderwork.mjs";
+import traework from "./traework.mjs";
 
-const adapters = new Map([codex, workbuddy].map((adapter) => [adapter.id, adapter]));
+const adapters = new Map([codex, workbuddy, qoderwork, traework].map((adapter) => [adapter.id, adapter]));
 
 export function listAdapters() {
   return [...adapters.values()];

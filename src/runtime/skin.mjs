@@ -44,20 +44,24 @@ export async function applySkin({
 } = {}) {
   const hostTransaction = await prepareHostSettings({ adapter, targetTheme, options: hostOptions });
   let rendererMutated = false;
+  // Hosts that force an ephemeral debug port surface the real port through
+  // the launch result, so injection must follow it rather than the request.
+  let activePort = port;
   try {
     const launchResult = launch
       ? await launchApp({ adapter, port, appPath, profilePath, restartExisting, timeoutMs })
       : null;
+    if (launchResult?.port) activePort = launchResult.port;
     if (hostTransaction.restartRequired && launchResult?.alreadyReady) {
-      throw restartRequiredError(adapter, port);
+      throw restartRequiredError(adapter, activePort);
     }
-    const targets = await applyTheme({ adapter, targetTheme, port, timeoutMs });
+    const targets = await applyTheme({ adapter, targetTheme, port: activePort, timeoutMs });
     rendererMutated = true;
     if (targets.some((item) => item.result?.pass === false)) throw verificationError(targets);
     return {
       action: "apply",
       appId: adapter.id,
-      port,
+      port: activePort,
       theme: targetTheme.theme,
       launch: launchResult,
       host: publicHostSettingsResult(adapter, hostTransaction),
@@ -68,7 +72,7 @@ export async function applySkin({
       try {
         error.rendererRollback = await removeTheme({
           adapter,
-          port,
+          port: activePort,
           timeoutMs: Math.min(timeoutMs, 3000),
         });
       } catch (rendererRollbackError) {
