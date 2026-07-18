@@ -1,6 +1,6 @@
 {
   "name": "@codedrobe/core",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Cross-platform CodeDrobe runtime, CLI, app adapters, and .codedrobe-theme tooling.",
   "type": "module",
   "license": "Apache-2.0",
@@ -34,10 +34,11 @@
     "LICENSE",
     "NOTICE",
     "README.md",
+    "README_zh.md",
     "bin",
+    "schemas",
     "src",
-    "types",
-    "README_zh.md"
+    "types"
   ],
   "scripts": {
     "test": "node --test && npm run typecheck",

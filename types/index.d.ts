@@ -457,6 +457,76 @@ export function resolveThemeTarget(bundle: ThemePackage, appId: string): Resolve
 export function lintThemePackage(bundle: ThemePackage): ThemeLintWarning[];
 export function buildThemePackage(manifestFilename: string): Promise<{ bundle: ThemePackage; serialized: string }>;
 export function writeThemePackage(manifestFilename: string, outputFilename: string, options?: { force?: boolean }): Promise<{ output: string; bundle: ThemePackage }>;
+export declare class ThemePublishError extends Error {
+  code: string;
+  status: number | null;
+  fields: Record<string, string[]> | null;
+}
+export interface PublishThemeOptions {
+  filename: string;
+  submit?: boolean;
+  slug?: string | null;
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+  credentialOptions?: { env?: Record<string, string | undefined>; home?: string };
+}
+export interface PublishThemeResult {
+  action: "created" | "updated" | "created+submitted" | "updated+submitted";
+  baseUrl: string;
+  theme: { id: string; slug: string; status?: string } | null;
+  version: { id: string; version: string; status?: string } | null;
+  review: unknown;
+  categories: string[];
+  categoriesDefaulted: boolean;
+  warnings: ThemeLintWarning[];
+  storeUrl: string | null;
+}
+export function publishThemePackage(options: PublishThemeOptions): Promise<PublishThemeResult>;
+export function slugCandidateFromThemeId(themeId: string): string;
+
+export declare class ThemeStoreError extends Error {
+  code: string;
+  status: number | null;
+}
+export interface StoreThemeSummary {
+  slug: string;
+  name: { en?: string | null; zh?: string | null } | null;
+  description: { en?: string | null; zh?: string | null } | null;
+  version: string | null;
+  categories: string[];
+  author: string | null;
+  free: boolean;
+  downloads: number | null;
+  likes: number | null;
+  storeUrl: string;
+}
+export function searchThemes(options?: {
+  query?: string;
+  appId?: string | null;
+  category?: string | null;
+  limit?: number;
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+}): Promise<{ baseUrl: string; total: number; themes: StoreThemeSummary[] }>;
+export function downloadTheme(options: {
+  slug: string;
+  output?: string | null;
+  force?: boolean;
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+}): Promise<{
+  slug: string;
+  themeId: string;
+  version: string;
+  displayName: string;
+  targets: string[];
+  sizeBytes: number;
+  sha256: string;
+  convertedFromLegacy: boolean;
+  output: string;
+  storeUrl: string;
+}>;
+
 export function validateLegacyThemePackage(bundle: unknown): LegacyThemePackage;
 export function readLegacyThemePackage(filename: string): Promise<LegacyThemePackage>;
 export function convertLegacyThemePackage(bundle: LegacyThemePackage): ThemePackage;

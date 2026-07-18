@@ -6,44 +6,189 @@ import { DOM_SNAPSHOT_DEFAULT_MAX_NODES, DOM_SNAPSHOT_MAX_NODES } from "./runtim
 import { captureScreenshot, probeApp, snapshotDom, verifyTheme, watchTheme } from "./runtime/injector.mjs";
 import { applySkin, restoreSkin } from "./runtime/skin.mjs";
 import { lintThemePackage, readThemePackage, resolveThemeTarget, writeThemePackage } from "./theme/package.mjs";
+import { publishThemePackage } from "./theme/publish.mjs";
+import { downloadTheme, searchThemes } from "./theme/store.mjs";
 import { convertLegacyThemeFile } from "./theme/legacy.mjs";
 import { checkForUpdate, detectPackageManager, formatCommand, getUpdateCommand, maybeNotifyUpdate, updateCodeDrobe } from "./update.mjs";
 import { runAuthCommand } from "./auth/commands.mjs";
 import { VERSION } from "./version.mjs";
 
-const HELP = `CodeDrobe multi-app theming CLI
+const TAGLINE = "CodeDrobe multi-app theming CLI";
 
-Usage:
-  codedrobe apps [--json]
-  codedrobe detect [--app <id>] [--app-path <path>] [--json]
-  codedrobe launch --app <id> [--app-path <path>] [--port <port>] [--restart-existing] [--profile <path>]
-  codedrobe dom snapshot --app <id> [--port <port>] [--output <json>] [--max-nodes <count>] [--include-hidden] [--timeout-ms <milliseconds>]
-  codedrobe probe --app <id> [--theme <file.codedrobe-theme>] [--port <port>] [--timeout-ms <milliseconds>]
-  codedrobe apply --app <id> --theme <file.codedrobe-theme> [--app-path <path>] [--port <port>] [--profile <path>] [--watch] [--restart-existing] [--no-launch]
-  codedrobe verify --app <id> [--theme <file.codedrobe-theme>] [--port <port>] [--screenshot <png>]
-  codedrobe restore --app <id> [--port <port>]
-  codedrobe update [--check] [--json]
-  codedrobe auth login [--scopes <s1,s2>] [--no-open] [--json]
-  codedrobe auth status [--json]
-  codedrobe auth logout [--json]
-  codedrobe theme inspect <file.codedrobe-theme>
-  codedrobe theme pack <manifest.json> --output <file.codedrobe-theme> [--force]
-  codedrobe theme convert <file.codex-theme> --output <file.codedrobe-theme> [--force]
+// Structured command registry: the single source of truth for both the general
+// help screen and per-command help (codedrobe <command> --help).
+const COMMAND_GROUPS = [
+  {
+    title: "Apps",
+    commands: [
+      { id: "apps", usage: "apps [--json]", summary: "List supported apps and their default CDP ports." },
+      { id: "detect", usage: "detect [--app <id>] [--app-path <path>] [--json]", summary: "Locate installed apps and whether they are running." },
+      { id: "launch", usage: "launch --app <id> [--app-path <path>] [--port <port>] [--restart-existing] [--profile <path>]", summary: "Launch an app with the CDP debugging endpoint enabled." },
+    ],
+  },
+  {
+    title: "Theme runtime",
+    commands: [
+      {
+        id: "apply",
+        usage: "apply --app <id> --theme <file.codedrobe-theme> [--app-path <path>] [--port <port>] [--profile <path>] [--watch] [--restart-existing] [--no-launch]",
+        summary: "Apply a theme to an app, launching it if needed.",
+        examples: ["codedrobe apply --app codex --theme dream.codedrobe-theme"],
+      },
+      { id: "restore", usage: "restore --app <id> [--port <port>]", summary: "Remove CodeDrobe theming and restore the native look. Alias: remove." },
+      { id: "verify", usage: "verify --app <id> [--theme <file.codedrobe-theme>] [--port <port>] [--screenshot <png>]", summary: "Check whether a theme is correctly applied." },
+      { id: "probe", usage: "probe --app <id> [--theme <file.codedrobe-theme>] [--port <port>] [--timeout-ms <milliseconds>]", summary: "Inspect a running app's DOM compatibility without mutating it." },
+      { id: "dom snapshot", usage: "dom snapshot --app <id> [--port <port>] [--output <json>] [--max-nodes <count>] [--include-hidden] [--timeout-ms <milliseconds>]", summary: "Capture a privacy-preserving DOM structure snapshot." },
+    ],
+  },
+  {
+    title: "Theme packages",
+    commands: [
+      { id: "theme inspect", usage: "theme inspect <file.codedrobe-theme>", summary: "Print package metadata and lint warnings." },
+      { id: "theme pack", usage: "theme pack <manifest.json> --output <file.codedrobe-theme> [--force]", summary: "Pack a theme.json project into a portable package." },
+      { id: "theme convert", usage: "theme convert <file.codex-theme> --output <file.codedrobe-theme> [--force]", summary: "Convert a legacy .codex-theme file into the new format." },
+      {
+        id: "theme publish",
+        usage: "theme publish <file.codedrobe-theme> [--submit] [--slug <slug>] [--json]",
+        summary: "Publish a package to the CodeDrobe store (requires sign-in).",
+        examples: [
+          "codedrobe theme pack theme.json --output dream.codedrobe-theme",
+          "codedrobe theme publish dream.codedrobe-theme --submit",
+        ],
+      },
+      {
+        id: "theme search",
+        usage: "theme search [query] [--app <id>] [--category <slug>] [--limit <count>] [--json]",
+        summary: "Search the CodeDrobe store catalog.",
+        examples: ["codedrobe theme search 复古 --app codex"],
+      },
+      {
+        id: "theme download",
+        usage: "theme download <slug> [--output <file.codedrobe-theme>] [--force] [--json]",
+        summary: "Download a store theme (to ~/.codedrobe/themes by default) with size and SHA-256 verification.",
+        examples: [
+          "codedrobe theme download qq-2007",
+          "codedrobe apply --app codex --theme ~/.codedrobe/themes/qq-2007-0.1.1.codedrobe-theme",
+        ],
+      },
+    ],
+  },
+  {
+    title: "Account",
+    commands: [
+      { id: "auth login", usage: "auth login [--scopes <s1,s2>] [--no-open] [--json]", summary: "Sign in via device authorization." },
+      { id: "auth status", usage: "auth status [--json]", summary: "Show the current sign-in state." },
+      { id: "auth logout", usage: "auth logout [--json]", summary: "Sign out and clear stored credentials." },
+    ],
+  },
+  {
+    title: "Maintenance",
+    commands: [
+      { id: "update", usage: "update [--check] [--json]", summary: "Update the CodeDrobe CLI to the latest version." },
+    ],
+  },
+];
 
-Safety:
-  Existing apps are never restarted unless --restart-existing is provided.
-  CDP is always bound to 127.0.0.1 by the launcher.
-  DOM snapshots exclude text, input values, accessible names, links, and media sources.
-  --app-path accepts an app bundle, installation directory, or executable file.
-  Auth stores a rotating refresh token in ~/.codedrobe/credentials.json (0600).
-  Set CODEDROBE_API_BASE to target a non-production CodeDrobe deployment.`;
+const GLOBAL_OPTIONS = [
+  { flag: "-h, --help", summary: "Show help. Append to any command for command-specific help." },
+  { flag: "-v, --version", summary: "Print the CLI version." },
+  { flag: "--json", summary: "Emit machine-readable JSON (on commands that support it)." },
+];
+
+const EXAMPLES = [
+  "codedrobe apply --app codex --theme dream.codedrobe-theme",
+  "codedrobe theme pack theme.json --output dream.codedrobe-theme",
+  "codedrobe theme publish dream.codedrobe-theme --submit",
+  "codedrobe restore --app codex",
+];
+
+const ENVIRONMENT = [
+  { name: "CODEDROBE_API_BASE", summary: "Target a non-production CodeDrobe deployment (default https://codedrobe.app)." },
+  { name: "CODEDROBE_CREDENTIALS_FILE", summary: "Override the credentials path (default ~/.codedrobe/credentials.json, 0600)." },
+];
+
+const SAFETY = [
+  "Existing apps are never restarted unless --restart-existing is provided.",
+  "CDP is always bound to 127.0.0.1 by the launcher.",
+  "DOM snapshots exclude text, input values, accessible names, links, and media sources.",
+  "--app-path accepts an app bundle, installation directory, or executable file.",
+  "Auth stores a rotating refresh token in ~/.codedrobe/credentials.json (0600).",
+];
+
+function flatCommands() {
+  return COMMAND_GROUPS.flatMap((group) => group.commands);
+}
+
+const TOP_LEVEL_COMMANDS = new Set([
+  ...flatCommands().map((command) => command.id.split(" ")[0]),
+  "remove", "help", "version",
+]);
+
+function padColumn(rows) {
+  const width = Math.max(...rows.map(([left]) => left.length));
+  return rows.map(([left, right]) => `  ${left.padEnd(width)}  ${right}`);
+}
+
+function renderGeneralHelp() {
+  const lines = [TAGLINE, "", "Usage:", "  codedrobe <command> [options]", ""];
+  for (const group of COMMAND_GROUPS) {
+    lines.push(`${group.title}:`);
+    lines.push(...padColumn(group.commands.map((command) => [command.id, command.summary])));
+    lines.push("");
+  }
+  lines.push("Global options:");
+  lines.push(...padColumn(GLOBAL_OPTIONS.map((option) => [option.flag, option.summary])));
+  lines.push("", "Examples:");
+  lines.push(...EXAMPLES.map((example) => `  ${example}`));
+  lines.push("", "Environment:");
+  lines.push(...padColumn(ENVIRONMENT.map((variable) => [variable.name, variable.summary])));
+  lines.push("", "Safety:");
+  lines.push(...SAFETY.map((note) => `  ${note}`));
+  return lines.join("\n");
+}
+
+function renderCommandHelp(command) {
+  const lines = [command.summary, "", "Usage:", `  codedrobe ${command.usage}`];
+  if (command.examples?.length) {
+    lines.push("", "Examples:");
+    lines.push(...command.examples.map((example) => `  ${example}`));
+  }
+  return lines.join("\n");
+}
+
+function renderGroupHelp(name, commands) {
+  const lines = [`codedrobe ${name} commands`, "", "Usage:"];
+  lines.push(...commands.map((command) => `  codedrobe ${command.usage}`));
+  return lines.join("\n");
+}
+
+/** Resolve `codedrobe <tokens> --help` to focused help, or null for the general screen. */
+function helpForTokens(tokens) {
+  if (!tokens.length) return null;
+  const commands = flatCommands();
+  const twoWord = tokens.slice(0, 2).join(" ");
+  const oneWord = tokens[0];
+  const exact = commands.find((command) => command.id === twoWord)
+    ?? commands.find((command) => command.id === oneWord);
+  if (exact) return renderCommandHelp(exact);
+  const group = commands.filter((command) => command.id === oneWord || command.id.startsWith(`${oneWord} `));
+  if (group.length) return renderGroupHelp(oneWord, group);
+  return null;
+}
+
+const HELP = renderGeneralHelp();
 
 function parseArguments(argv) {
   const options = {};
   const positional = [];
-  const boolean = new Set(["json", "watch", "restart-existing", "no-launch", "force", "check", "help", "version", "include-hidden", "no-open"]);
+  const boolean = new Set(["json", "watch", "restart-existing", "no-launch", "force", "check", "help", "version", "include-hidden", "no-open", "submit"]);
+  const shortFlags = { "-h": "help", "-v": "version" };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
+    if (shortFlags[value]) {
+      options[shortFlags[value]] = true;
+      continue;
+    }
     if (!value.startsWith("--")) {
       positional.push(value);
       continue;
@@ -295,6 +440,66 @@ async function runThemeCommand(positional, options) {
     }, options.json);
     return;
   }
+  if (action === "publish") {
+    if (!filename) throw new Error("Theme publish requires a .codedrobe-theme file.");
+    if (!options.json) {
+      console.error(`[codedrobe] Publishing ${path.basename(filename)} to the CodeDrobe store…`);
+    }
+    const result = await publishThemePackage({
+      filename,
+      submit: Boolean(options.submit),
+      slug: options.slug ?? null,
+    });
+    output(options.json ? { action: "theme-publish", ...result } : {
+      action: "theme-publish",
+      result: result.action,
+      theme: { id: result.theme?.id ?? null, slug: result.theme?.slug ?? null, status: result.theme?.status ?? null },
+      version: { id: result.version?.id ?? null, version: result.version?.version ?? null, status: result.version?.status ?? null },
+      review: result.review,
+      categories: result.categories,
+      warnings: result.warnings,
+      storeUrl: result.storeUrl,
+    }, options.json);
+    return;
+  }
+  if (action === "search") {
+    const result = await searchThemes({
+      query: filename ?? "",
+      appId: options.app ?? null,
+      category: options.category ?? null,
+      limit: options.limit === undefined ? 20 : Number(options.limit),
+    });
+    if (options.json) {
+      output({ action: "theme-search", ...result }, true);
+      return;
+    }
+    if (!result.themes.length) {
+      output("No themes matched.");
+      return;
+    }
+    const lines = result.themes.map((theme) => {
+      const name = theme.name?.zh || theme.name?.en || theme.slug;
+      const categories = theme.categories.length ? ` [${theme.categories.join(", ")}]` : "";
+      const author = theme.author ? ` by ${theme.author}` : "";
+      return `${theme.slug} — ${name}${theme.version ? ` (v${theme.version})` : ""}${categories}${author}`;
+    });
+    output(`${lines.join("\n")}\n\nShowing ${result.themes.length} of ${result.total}. Install with: codedrobe theme download <slug>`);
+    return;
+  }
+  if (action === "download") {
+    if (!filename) throw new Error("Theme download requires a store theme slug.");
+    const result = await downloadTheme({
+      slug: filename,
+      output: options.output ?? null,
+      force: Boolean(options.force),
+    });
+    output(options.json ? { action: "theme-download", ...result } : {
+      action: "theme-download",
+      ...result,
+      next: `codedrobe apply --app <app-id> --theme ${result.output}`,
+    }, options.json);
+    return;
+  }
   if (action === "convert") {
     if (!filename) throw new Error("Theme convert requires a legacy .codex-theme file.");
     const outputFilename = requireOption(options, "output");
@@ -309,7 +514,7 @@ async function runThemeCommand(positional, options) {
     }, options.json);
     return;
   }
-  throw new Error("Theme command must be 'inspect', 'pack', or 'convert'.");
+  throw new Error("Theme command must be 'inspect', 'pack', 'convert', 'publish', 'search', or 'download'.");
 }
 
 function formatUpdateStatus(status, command) {
@@ -340,9 +545,17 @@ async function dispatchCli(positional, options) {
     output(VERSION);
     return;
   }
-  if (!command || command === "help" || options.help) {
-    output(HELP);
+  // `--help`/`-h` after a command, or `help <command>`, shows focused help.
+  if (options.help) {
+    output((command && helpForTokens(positional)) || HELP);
     return;
+  }
+  if (!command || command === "help") {
+    output(helpForTokens(positional.slice(1)) || HELP);
+    return;
+  }
+  if (!TOP_LEVEL_COMMANDS.has(command)) {
+    throw new Error(`Unknown command '${command}'. Run 'codedrobe --help' to list commands.`);
   }
   if (command === "apps") {
     output(listAdapters().map(summarizeAdapter), options.json);
@@ -382,6 +595,11 @@ export async function runCli(argv = process.argv.slice(2)) {
   await dispatchCli(positional, options);
   const command = positional[0] || (options.version ? "version" : "help");
   await maybeNotifyUpdate({ command, json: Boolean(options.json) });
+}
+
+/** Resolve focused help text for a command, e.g. commandHelp(["theme", "publish"]). */
+export function commandHelp(tokens) {
+  return helpForTokens(tokens);
 }
 
 export { HELP };

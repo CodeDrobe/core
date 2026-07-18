@@ -193,6 +193,27 @@ function verificationSelectors(verification, prefix) {
 export function lintThemePackage(bundle) {
   validateThemePackage(bundle);
   const warnings = [];
+  // Store listings are built from theme.catalog at publish time; missing
+  // pieces publish fine but produce a bare, hard-to-discover listing.
+  const catalog = bundle.theme.catalog;
+  if (catalog?.description === undefined) {
+    warnings.push({
+      code: "missing-catalog-description",
+      appId: null,
+      location: "theme.catalog.description",
+      selector: null,
+      message: "No store description: publish falls back to theme.copy.tagline, or an empty listing description without one.",
+    });
+  }
+  if (catalog?.categories === undefined) {
+    warnings.push({
+      code: "missing-catalog-categories",
+      appId: null,
+      location: "theme.catalog.categories",
+      selector: null,
+      message: "No store categories: publish will file the theme under 'other' until it declares its own.",
+    });
+  }
   for (const [appId, target] of Object.entries(bundle.targets)) {
     for (const selector of extractCssSelectorBlocks(target.css)) {
       warnings.push(...lintSelector(selector, { appId, location: `targets.${appId}.css` }));
@@ -233,10 +254,27 @@ function validateTarget(target, appId) {
   validateVerification(target.verification, `targets.${appId}.verification`);
 }
 
+const CATEGORY_SLUG = /^[a-z0-9][a-z0-9-]*$/;
+
 function validateThemeCatalog(catalog) {
   if (catalog === undefined) return;
   if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) {
     throw new Error("theme.catalog must be an object.");
+  }
+  // Only the shape is validated here: the store owns the category taxonomy,
+  // so slug existence is checked server-side at publish time.
+  if (catalog.categories !== undefined) {
+    if (!Array.isArray(catalog.categories) || !catalog.categories.length) {
+      throw new Error("theme.catalog.categories must be a non-empty array of category slugs.");
+    }
+    for (const slug of catalog.categories) {
+      if (typeof slug !== "string" || !CATEGORY_SLUG.test(slug)) {
+        throw new Error("theme.catalog.categories entries must be lowercase slugs (letters, numbers, hyphens).");
+      }
+    }
+    if (new Set(catalog.categories).size !== catalog.categories.length) {
+      throw new Error("theme.catalog.categories must not contain duplicates.");
+    }
   }
   for (const field of ["name", "description"]) {
     const value = catalog[field];

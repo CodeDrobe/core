@@ -18,6 +18,8 @@ export {
   validateThemePackage,
   writeThemePackage,
 } from "./theme/package.mjs";
+export { ThemePublishError, publishThemePackage, slugCandidateFromThemeId } from "./theme/publish.mjs";
+export { ThemeStoreError, downloadTheme, searchThemes } from "./theme/store.mjs";
 export {
   LEGACY_THEME_EXTENSION,
   LEGACY_THEME_FORMAT,

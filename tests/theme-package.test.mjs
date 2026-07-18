@@ -151,8 +151,20 @@ test("accepts recommended-only checks and reports brittle selector warnings", ()
     "positional-selector",
     "deep-child-chain",
     "localized-attribute",
+    // The fixture declares no theme.catalog, so store-metadata lint fires too.
+    "missing-catalog-description",
+    "missing-catalog-categories",
   ]));
-  assert.ok(warnings.every((warning) => warning.appId === "codex"));
+  assert.ok(warnings.filter((warning) => warning.selector).every((warning) => warning.appId === "codex"));
+
+  const catalogued = lintThemePackage({
+    ...bundle,
+    theme: {
+      ...bundle.theme,
+      catalog: { description: { zh: "用于 lint 的探针主题。" }, categories: ["other"] },
+    },
+  });
+  assert.ok(catalogued.every((warning) => !warning.code.startsWith("missing-catalog")));
 });
 
 test("rejects a theme that does not support the selected app", async () => {

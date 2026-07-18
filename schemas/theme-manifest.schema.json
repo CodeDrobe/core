@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://codedrobe.app/schemas/theme-manifest.schema.json",
+  "title": "CodeDrobe theme manifest (theme.json)",
+  "description": "Source manifest for a CodeDrobe theme project. `codedrobe theme pack` inlines the referenced CSS and image files into a portable .codedrobe-theme package.",
+  "type": "object",
+  "required": ["schemaVersion", "id", "displayName", "version", "targets"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$",
+      "description": "Theme id. Underscores become hyphens in the store slug (dream_theme → dream-theme)."
+    },
+    "displayName": { "type": "string", "minLength": 1 },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$",
+      "description": "Semantic version. The store requires semver and rejects re-uploads of an existing version."
+    },
+    "copy": {
+      "type": "object",
+      "description": "Free-form strings interpolated into theme CSS/content. `tagline` doubles as the store description fallback when catalog.description is missing.",
+      "additionalProperties": { "type": "string" }
+    },
+    "catalog": {
+      "type": "object",
+      "description": "Store listing metadata used by `codedrobe theme publish`.",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/definitions/localizedText" },
+        "description": {
+          "oneOf": [
+            { "type": "string", "maxLength": 2000 },
+            { "$ref": "#/definitions/localizedText" }
+          ],
+          "description": "Plain strings route to zh when they contain CJK characters, otherwise en."
+        },
+        "categories": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "description": "Store category slugs; the first entry is the primary shelf. Omitted themes are filed under 'other'. The store owns the taxonomy and rejects unknown slugs at publish time."
+        }
+      }
+    },
+    "art": {
+      "type": "string",
+      "description": "Legacy alias for images.hero (relative image path). Cannot be combined with images.hero."
+    },
+    "images": {
+      "type": "object",
+      "description": "Named image files (relative paths) inlined into the package. `cover` (falling back to `hero`, then `art`) becomes the store listing cover.",
+      "maxProperties": 32,
+      "propertyNames": { "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$" },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "\\.(?:[Pp][Nn][Gg]|[Jj][Pp][Ee]?[Gg]|[Ww][Ee][Bb][Pp]|[Gg][Ii][Ff])$",
+        "description": "Relative path to a png/jpeg/webp/gif file."
+      }
+    },
+    "targets": {
+      "type": "object",
+      "description": "Per-app styling, keyed by app id (codex, workbuddy, …).",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$" },
+      "additionalProperties": { "$ref": "#/definitions/target" }
+    }
+  },
+  "definitions": {
+    "localizedText": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "en": { "type": "string" },
+        "zh": { "type": "string" }
+      }
+    },
+    "selector": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "selectorList": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/selector" }
+    },
+    "requirement": {
+      "type": "object",
+      "required": ["name", "any"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$" },
+        "any": {
+          "$ref": "#/definitions/selectorList",
+          "description": "The check passes when any listed selector matches a visible element."
+        }
+      }
+    },
+    "requirementList": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/requirement" }
+    },
+    "verification": {
+      "type": "object",
+      "description": "DOM landmarks this theme relies on. `required` entries block applying when missing; `recommended` entries only warn.",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["required"] },
+        { "required": ["recommended"] },
+        { "required": ["contexts"] }
+      ],
+      "properties": {
+        "required": { "$ref": "#/definitions/requirementList" },
+        "recommended": { "$ref": "#/definitions/requirementList" },
+        "contexts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": ["name", "when"],
+            "additionalProperties": false,
+            "anyOf": [
+              { "required": ["required"] },
+              { "required": ["recommended"] }
+            ],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$" },
+              "when": {
+                "type": "object",
+                "required": ["any"],
+                "additionalProperties": false,
+                "properties": { "any": { "$ref": "#/definitions/selectorList" } },
+                "description": "The context (and its checks) activates only while any of these selectors matches."
+              },
+              "required": { "$ref": "#/definitions/requirementList" },
+              "recommended": { "$ref": "#/definitions/requirementList" }
+            }
+          }
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["css"],
+      "additionalProperties": false,
+      "properties": {
+        "css": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Relative path to this app's CSS file. External resource references are rejected at pack time."
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rendererProfile": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$",
+              "description": "Adapter renderer profile id (e.g. codex-theme-v1)."
+            },
+            "baseTheme": {
+              "type": "object",
+              "description": "Host app appearance settings written at apply time (mode, accent, fonts, …)."
+            }
+          }
+        },
+        "verification": { "$ref": "#/definitions/verification" }
+      }
+    }
+  }
+}

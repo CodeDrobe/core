@@ -1,4 +1,5 @@
 {
+  "$schema": "https://codedrobe.app/schemas/theme-manifest.schema.json",
   "schemaVersion": 1,
   "id": "dream",
   "displayName": "Dream Multi-App",
@@ -11,12 +12,16 @@
           {
             "name": "home",
             "when": {
-              "any": ["[role='main']:has([data-testid='home-icon'])"]
+              "any": [
+                "[role='main']:has([data-testid='home-icon'])"
+              ]
             },
             "recommended": [
               {
                 "name": "home-suggestions",
-                "any": [".group\\/home-suggestions"]
+                "any": [
+                  ".group\\/home-suggestions"
+                ]
               }
             ]
           }
@@ -29,13 +34,18 @@
         "required": [
           {
             "name": "chat-surface",
-            "any": [".chat-container", ".wb-cb-chat"]
+            "any": [
+              ".chat-container",
+              ".wb-cb-chat"
+            ]
           }
         ],
         "recommended": [
           {
             "name": "conversation-list",
-            "any": [".conversation-list"]
+            "any": [
+              ".conversation-list"
+            ]
           }
         ]
       }
