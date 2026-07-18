@@ -4,6 +4,7 @@ const workbuddy = {
   defaultPort: 9336,
   lastVerified: {
     darwin: { appVersion: "5.2.6", build: "5.2.6", verifiedAt: "2026-07-16" },
+    win32: { appVersion: "5.2.6", build: "5.2.6", verifiedAt: "2026-07-18" },
   },
   platforms: {
     darwin: {
@@ -18,6 +19,9 @@ const workbuddy = {
         "%LOCALAPPDATA%\\WorkBuddy\\WorkBuddy.exe",
         "%PROGRAMFILES%\\WorkBuddy\\WorkBuddy.exe"
       ],
+      // Covers installs on non-default drives (e.g. D:\Program Files) via the
+      // installer's registry uninstall entry.
+      uninstallKeys: ["WorkBuddy"],
       processNames: ["WorkBuddy.exe", "Electron.exe"],
     },
   },
@@ -31,8 +35,11 @@ const workbuddy = {
       /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(url);
   },
   verification: {
+    // The root landmark is the only blocking check: it doubles as the
+    // "app finished booting" signal and the minimal app fingerprint. Everything
+    // else warns — panels hide per view/window, and CSS is inert on absent nodes.
     rootAny: ["#root > .teams-container", ".teams-container", "#root"],
-    required: [
+    recommended: [
       { name: "sidebar", any: [".conversation-sidebar", ".conversation-list"] },
       { name: "workspace", any: [".teams-main-content", ".main-content", ".chat-container"] },
       { name: "composer", any: ["[role='textbox'][contenteditable='true']", ".wb-home-composer [contenteditable='true']"] },

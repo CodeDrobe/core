@@ -46,12 +46,27 @@ async function withSessions(targets, callback, sessionTimeoutMs = 10000) {
   return results;
 }
 
-function compatibilityError(adapter, results) {
-  const missing = results.flatMap((item) => item.result?.missing ?? []);
-  const detail = missing
+export function describeMissingRequirements(missing) {
+  return missing
     .map((item) => `${item.scope}${item.context ? `:${item.context}` : ""}:${item.name} (${item.selectors.join(" | ")})`)
     .join("; ");
-  const error = new Error(`${adapter.displayName} DOM preflight failed${detail ? `: ${detail}` : "."}`);
+}
+
+export function describeTarget(item) {
+  return item.title || item.url || item.targetId || "unknown target";
+}
+
+function compatibilityError(adapter, results) {
+  const failures = results.filter((item) => !item.result?.compatible);
+  const missing = failures.flatMap((item) => item.result?.missing ?? []);
+  const detail = failures
+    .map((item) => `${describeTarget(item)} → ${describeMissingRequirements(item.result?.missing ?? []) || "no DOM response"}`)
+    .join(" ‖ ");
+  const error = new Error(
+    `${adapter.displayName} DOM preflight failed for ${failures.length} of ${results.length} renderer target(s)` +
+    `${detail ? `: ${detail}` : "."}` +
+    ` The app may have updated since this adapter was last verified (${JSON.stringify(adapter.lastVerified ?? {})}).`,
+  );
   error.code = "CODEDROBE_DOM_INCOMPATIBLE";
   error.missing = missing;
   error.results = results;
@@ -63,15 +78,34 @@ function ensureCompatible(adapter, results) {
   throw compatibilityError(adapter, results);
 }
 
-async function waitForCompatibility(session, expression, timeoutMs = 5000) {
-  const deadline = Date.now() + timeoutMs;
+/**
+ * Waits for the page to pass the compatibility probe. A page whose root
+ * landmark is absent is still booting (splash/loading screen), so it gets the
+ * full boot budget; once the skeleton exists, a genuine selector mismatch
+ * fails after the shorter settle budget instead of stalling the caller.
+ */
+async function waitForCompatibility(session, expression, settleTimeoutMs = 5000, bootTimeoutMs = settleTimeoutMs) {
+  const start = Date.now();
+  let structuredAt = null;
   let result;
   do {
-    result = await session.evaluate(expression);
+    try {
+      result = await session.evaluate(expression);
+    } catch {
+      // Boot-time navigations tear down the execution context mid-evaluate;
+      // treat it like a page that has not rendered yet and retry.
+      result = undefined;
+    }
     if (result?.compatible) return result;
+    const now = Date.now();
+    const hasRoot = Boolean(result?.rootMatches?.length);
+    if (hasRoot && structuredAt === null) structuredAt = now;
+    const deadline = hasRoot
+      ? Math.min(start + bootTimeoutMs, structuredAt + settleTimeoutMs)
+      : start + bootTimeoutMs;
+    if (now >= deadline) return result;
     await delay(250);
-  } while (Date.now() < deadline);
-  return result;
+  } while (true);
 }
 
 export async function probeApp({ adapter, targetTheme = null, port, timeoutMs = 5000 }) {
@@ -96,20 +130,41 @@ export async function snapshotDom({
 export async function applyTheme({ adapter, targetTheme, port, timeoutMs = 30000 }) {
   const targets = await waitForTargets(adapter, port, timeoutMs);
   const preflightExpression = buildProbeExpression(adapter, targetTheme.verification);
+  // A splash/loading screen may keep the DOM empty for a long while after the
+  // CDP target exists, so booting pages get the full apply budget while
+  // rendered-but-mismatched pages still fail within the settle budget.
   const preflight = await withSessions(
     targets,
-    (session) => waitForCompatibility(session, preflightExpression, Math.min(timeoutMs, 5000)),
+    (session) => waitForCompatibility(session, preflightExpression, Math.min(timeoutMs, 10000), timeoutMs),
+    Math.max(10000, timeoutMs),
   );
-  ensureCompatible(adapter, preflight);
+  // Secondary windows (popped-out chats, floating panels) legitimately lack
+  // parts of the main-window DOM. Theme every compatible target and report the
+  // rest as skipped instead of refusing the whole apply.
+  const compatibleIds = new Set(preflight.filter((item) => item.result?.compatible).map((item) => item.targetId));
+  if (!compatibleIds.size) throw compatibilityError(adapter, preflight);
+  const skipped = preflight
+    .filter((item) => !compatibleIds.has(item.targetId))
+    .map((item) => ({
+      targetId: item.targetId,
+      title: item.title,
+      url: item.url,
+      skipped: true,
+      missing: item.result?.missing ?? [],
+    }));
   const expression = buildApplyExpression({ adapter, targetTheme });
   let rendererMutated = false;
   try {
-    return await withSessions(targets, async (session) => {
-      await session.evaluate(expression);
-      rendererMutated = true;
-      await delay(500);
-      return session.evaluate(buildVerifyExpression(adapter, targetTheme.theme, targetTheme.verification, targetTheme));
-    });
+    const applied = await withSessions(
+      targets.filter((target) => compatibleIds.has(target.id)),
+      async (session) => {
+        await session.evaluate(expression);
+        rendererMutated = true;
+        await delay(500);
+        return session.evaluate(buildVerifyExpression(adapter, targetTheme.theme, targetTheme.verification, targetTheme));
+      },
+    );
+    return [...applied, ...skipped];
   } catch (error) {
     error.rendererMutated = rendererMutated;
     throw error;
@@ -153,6 +208,10 @@ export async function watchTheme({ adapter, targetTheme, port, timeoutMs = 30000
   const expression = buildApplyExpression({ adapter, targetTheme });
   const preflightExpression = buildProbeExpression(adapter, targetTheme.verification);
   const sessions = new Map();
+  // Incompatible targets (e.g. popped-out windows) retry on a cooldown instead
+  // of blocking every poll cycle for the full preflight wait.
+  const incompatibleUntil = new Map();
+  const INCOMPATIBLE_RETRY_MS = 15000;
   let stopping = Boolean(signal?.aborted);
   const stop = () => { stopping = true; };
   process.once("SIGINT", stop);
@@ -176,8 +235,12 @@ export async function watchTheme({ adapter, targetTheme, port, timeoutMs = 30000
           sessions.delete(id);
         }
       }
+      for (const id of incompatibleUntil.keys()) {
+        if (!activeIds.has(id)) incompatibleUntil.delete(id);
+      }
       for (const target of targets) {
         if (sessions.has(target.id)) continue;
+        if ((incompatibleUntil.get(target.id) ?? 0) > Date.now()) continue;
         let session;
         try {
           session = await new CdpSession(target).open();
@@ -198,6 +261,7 @@ export async function watchTheme({ adapter, targetTheme, port, timeoutMs = 30000
           onEvent({ type: "injected", targetId: target.id, title: target.title });
         } catch (error) {
           session?.close();
+          if (error.code === "CODEDROBE_DOM_INCOMPATIBLE") incompatibleUntil.set(target.id, Date.now() + INCOMPATIBLE_RETRY_MS);
           onEvent({ type: "error", targetId: target.id, code: error.code, message: error.message, missing: error.missing ?? [] });
         }
       }

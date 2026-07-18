@@ -186,7 +186,10 @@ export async function applyCodexBaseTheme({ targetTheme, platform = process.plat
     supported: true,
     applied: true,
     changed: updated !== before,
-    restartRequired: updated !== before,
+    // Codex hot-reloads the managed [desktop] appearance settings, so a config
+    // change never needs a relaunch by itself. A restart is only ever required
+    // by the launcher when the app runs without the CDP flag.
+    restartRequired: false,
     configPath,
     backupPath,
     backupCreated,

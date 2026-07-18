@@ -54,8 +54,8 @@ function buildCompatibilityPrelude(adapter, themeVerification = null) {
     const appId = ${appId};
     const compatibilityProfile = ${profile};
     const inspect = (selector) => {
-      try { return { selector, node: document.querySelector(selector), valid: true, error: null }; }
-      catch (error) { return { selector, node: null, valid: false, error: error?.message ?? String(error) }; }
+      try { return { selector, nodes: Array.from(document.querySelectorAll(selector)), valid: true, error: null }; }
+      catch (error) { return { selector, nodes: [], valid: false, error: error?.message ?? String(error) }; }
     };
     const visible = (node) => {
       if (!node) return false;
@@ -63,10 +63,12 @@ function buildCompatibilityPrelude(adapter, themeVerification = null) {
       const style = getComputedStyle(node);
       return box.width > 0 && box.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
     };
+    // A selector passes when ANY of its matches is visible: apps may keep
+    // hidden duplicates (drawers, virtualized copies) ahead in DOM order.
     const evaluateSelectors = (selectors) => {
       const inspected = selectors.map(inspect);
       return {
-        matches: inspected.filter((item) => item.valid && visible(item.node)).map((item) => item.selector),
+        matches: inspected.filter((item) => item.valid && item.nodes.some(visible)).map((item) => item.selector),
         invalidSelectors: inspected.filter((item) => !item.valid).map((item) => ({ selector: item.selector, error: item.error })),
       };
     };

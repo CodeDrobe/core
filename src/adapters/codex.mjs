@@ -29,8 +29,11 @@ const codex = {
     return target?.type === "page" && String(target.url ?? "").startsWith("app://");
   },
   verification: {
+    // The root landmark is the only blocking check: it doubles as the
+    // "app finished booting" signal and the minimal app fingerprint. Everything
+    // else warns — the sidebar collapses, and CSS is inert on absent nodes.
     rootAny: ["main.main-surface"],
-    required: [
+    recommended: [
       { name: "sidebar", any: ["aside.app-shell-left-panel"] },
       { name: "composer", any: [".composer-surface-chrome"] },
     ],

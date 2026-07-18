@@ -1,13 +1,21 @@
 import { launchApp } from "./launcher.mjs";
-import { applyTheme, removeTheme } from "./injector.mjs";
+import { applyTheme, describeMissingRequirements, describeTarget, removeTheme } from "./injector.mjs";
 import { prepareHostSettings, publicHostSettingsResult, restoreHostSettings } from "./host-settings.mjs";
+
+function describeVerifyFailure(item) {
+  const reasons = [];
+  const missingDetail = describeMissingRequirements(item.result?.missing ?? []);
+  if (missingDetail) reasons.push(missingDetail);
+  if (item.result?.horizontalOverflow) reasons.push("horizontal overflow (theme widens the layout past the viewport)");
+  if (item.result && !item.result.stylePresent) reasons.push("theme stylesheet missing");
+  if (item.result && !item.result.installed) reasons.push("theme runtime not installed");
+  return `${describeTarget(item)} → ${reasons.join("; ") || "unknown verification failure"}`;
+}
 
 function verificationError(results) {
   const failures = results.filter((item) => item.result?.pass === false);
   const missing = failures.flatMap((item) => item.result?.missing ?? []);
-  const detail = missing
-    .map((item) => `${item.scope}${item.context ? `:${item.context}` : ""}:${item.name} (${item.selectors.join(" | ")})`)
-    .join("; ");
+  const detail = failures.map(describeVerifyFailure).join(" ‖ ");
   const error = new Error(`Theme application verification failed for ${failures.length} renderer target(s)${detail ? `: ${detail}` : "."}`);
   error.code = "CODEDROBE_VERIFY_FAILED";
   error.missing = missing;

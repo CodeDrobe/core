@@ -92,7 +92,8 @@ function browserContext() {
     if (selector === ".dream-home-shell") {
       return [shell, ids.get("codedrobe-codex-skin-chrome")].filter((node) => node?.classList.contains("dream-home-shell"));
     }
-    return [];
+    const single = document.querySelector(selector);
+    return single ? [single] : [];
   };
   const context = {
     document,

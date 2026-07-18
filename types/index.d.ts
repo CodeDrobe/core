@@ -116,6 +116,11 @@ export interface ThemeIdentity {
   displayName: string;
   version: string;
   copy?: Record<string, unknown>;
+  /** Store-facing metadata; marketplaces prefill listings from it. */
+  catalog?: {
+    name?: { en?: string; zh?: string };
+    description?: string | { en?: string; zh?: string };
+  };
 }
 
 export interface ThemeImage {

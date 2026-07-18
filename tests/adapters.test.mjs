@@ -23,7 +23,10 @@ test("Codex verification keeps only current cross-route landmarks", () => {
     verifiedAt: "2026-07-16",
   });
   assert.deepEqual(adapter.verification.rootAny, ["main.main-surface"]);
-  assert.deepEqual(adapter.verification.required, [
+  // Only the root landmark blocks: the sidebar collapses and other panels are
+  // route-dependent, so every other landmark is warning-level.
+  assert.equal(adapter.verification.required, undefined);
+  assert.deepEqual(adapter.verification.recommended, [
     { name: "sidebar", any: ["aside.app-shell-left-panel"] },
     { name: "composer", any: [".composer-surface-chrome"] },
   ]);
@@ -47,9 +50,12 @@ test("WorkBuddy verification uses selectors observed in the real renderer", () =
   const adapter = getAdapter("workbuddy");
   assert.deepEqual(adapter.lastVerified.darwin, { appVersion: "5.2.6", build: "5.2.6", verifiedAt: "2026-07-16" });
   assert.match(adapter.verification.rootAny.join(" "), /teams-container/);
-  assert.match(adapter.verification.required.find((item) => item.name === "sidebar").any.join(" "), /conversation-sidebar/);
-  assert.match(adapter.verification.required.find((item) => item.name === "workspace").any.join(" "), /teams-main-content/);
-  assert.match(adapter.verification.required.find((item) => item.name === "composer").any.join(" "), /role='textbox'/);
+  // Only the root landmark blocks; panels hide per view/window so all other
+  // landmarks are warning-level.
+  assert.equal(adapter.verification.required, undefined);
+  assert.match(adapter.verification.recommended.find((item) => item.name === "sidebar").any.join(" "), /conversation-sidebar/);
+  assert.match(adapter.verification.recommended.find((item) => item.name === "workspace").any.join(" "), /teams-main-content/);
+  assert.match(adapter.verification.recommended.find((item) => item.name === "composer").any.join(" "), /role='textbox'/);
   assert.doesNotMatch(JSON.stringify(adapter.verification), /monaco-workbench/);
 });
 

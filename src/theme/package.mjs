@@ -233,6 +233,33 @@ function validateTarget(target, appId) {
   validateVerification(target.verification, `targets.${appId}.verification`);
 }
 
+function validateThemeCatalog(catalog) {
+  if (catalog === undefined) return;
+  if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) {
+    throw new Error("theme.catalog must be an object.");
+  }
+  for (const field of ["name", "description"]) {
+    const value = catalog[field];
+    if (value === undefined) continue;
+    if (typeof value === "string") {
+      if (field === "name") throw new Error("theme.catalog.name must be an object with en/zh strings.");
+      continue;
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(
+        field === "name"
+          ? "theme.catalog.name must be an object with en/zh strings."
+          : "theme.catalog.description must be a string or an object with en/zh strings.",
+      );
+    }
+    for (const locale of ["en", "zh"]) {
+      if (value[locale] !== undefined && typeof value[locale] !== "string") {
+        throw new Error(`theme.catalog.${field}.${locale} must be a string.`);
+      }
+    }
+  }
+}
+
 export function validateThemePackage(bundle) {
   if (!bundle || typeof bundle !== "object") throw new Error("Theme package must be a JSON object.");
   if (bundle.format !== THEME_FORMAT) throw new Error(`Unsupported theme format '${bundle.format ?? "missing"}'.`);
@@ -246,6 +273,7 @@ export function validateThemePackage(bundle) {
   if (bundle.theme.copy !== undefined && (!bundle.theme.copy || typeof bundle.theme.copy !== "object" || Array.isArray(bundle.theme.copy))) {
     throw new Error("theme.copy must be an object.");
   }
+  validateThemeCatalog(bundle.theme.catalog);
   if (!bundle.targets || typeof bundle.targets !== "object" || Array.isArray(bundle.targets)) {
     throw new Error("Theme package requires a targets object.");
   }
@@ -363,6 +391,7 @@ export async function buildThemePackage(manifestFilename) {
       displayName: source.displayName,
       version: source.version,
       ...(source.copy ? { copy: source.copy } : {}),
+      ...(source.catalog ? { catalog: source.catalog } : {}),
     },
     targets,
     ...(assets ? { assets } : {}),

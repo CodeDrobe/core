@@ -43,8 +43,13 @@ test("preflight reports missing theme nodes separately from adapter landmarks", 
     ".teams-main-content",
     "[role='textbox'][contenteditable='true']",
   ]);
+  const hiddenElement = { getBoundingClientRect: () => ({ width: 0, height: 0 }) };
   const context = {
-    document: { querySelector: (selector) => matchedSelectors.has(selector) ? visibleElement : null },
+    document: {
+      // Every selector also yields a leading zero-sized duplicate so the suite
+      // proves the probe accepts any visible match, not just the first node.
+      querySelectorAll: (selector) => matchedSelectors.has(selector) ? [hiddenElement, visibleElement] : [],
+    },
     getComputedStyle: () => ({ display: "block", visibility: "visible" }),
     innerWidth: 1200,
     innerHeight: 800,
@@ -102,9 +107,9 @@ test("preflight reports invalid selectors instead of hiding parser failures", ()
   const visibleElement = { getBoundingClientRect: () => ({ width: 100, height: 40 }) };
   const context = {
     document: {
-      querySelector(selector) {
+      querySelectorAll(selector) {
         if (selector === "[broken") throw new Error("Invalid selector");
-        return visibleElement;
+        return [visibleElement];
       },
     },
     getComputedStyle: () => ({ display: "block", visibility: "visible" }),

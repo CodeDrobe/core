@@ -75,6 +75,54 @@ async function discoverMac(adapter, config) {
   return null;
 }
 
+function relativeExecutableNames(config) {
+  const names = [];
+  if (config.executableRelative) names.push(config.executableRelative);
+  for (const candidate of config.executableCandidates ?? []) names.push(path.win32.basename(candidate));
+  names.push(...(config.processNames ?? []));
+  return [...new Set(names)];
+}
+
+async function queryRegistryValue(key, valueName) {
+  try {
+    const { stdout } = await execFileAsync("reg.exe", ["query", key, "/v", valueName]);
+    const pattern = new RegExp(`${valueName}\\s+REG_(?:EXPAND_)?SZ\\s+(.+)`, "i");
+    return pattern.exec(stdout)?.[1]?.trim().replace(/^"|"$/g, "") || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Installers write their location to the registry uninstall keys, which is the
+ * only reliable way to find installs on non-default drives or custom folders.
+ */
+async function discoverWindowsRegistry(adapter, config) {
+  const executableNames = relativeExecutableNames(config);
+  for (const keyName of config.uninstallKeys ?? []) {
+    for (const hive of ["HKCU", "HKLM"]) {
+      for (const view of ["", "\\WOW6432Node"]) {
+        const key = `${hive}\\SOFTWARE${view}\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${keyName}`;
+        const location = await queryRegistryValue(key, "InstallLocation");
+        if (location) {
+          for (const relative of executableNames) {
+            const executable = path.win32.join(location, relative);
+            if (await isExecutable(executable)) return { appId: adapter.id, appPath: location, executable };
+          }
+        }
+        const icon = await queryRegistryValue(key, "DisplayIcon");
+        if (icon) {
+          const executable = icon.split(",")[0].trim();
+          if (/\.exe$/i.test(executable) && await isExecutable(executable)) {
+            return { appId: adapter.id, appPath: path.win32.dirname(executable), executable };
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
 async function discoverWindows(adapter, config) {
   if (config.appxPackage) {
     const script = `(Get-AppxPackage ${config.appxPackage} | Sort-Object Version -Descending | Select-Object -First 1).InstallLocation`;
@@ -91,7 +139,7 @@ async function discoverWindows(adapter, config) {
     const executable = expandPath(candidate);
     if (await isExecutable(executable)) return { appId: adapter.id, appPath: path.dirname(executable), executable };
   }
-  return null;
+  return discoverWindowsRegistry(adapter, config);
 }
 
 export async function discoverApp(adapter, platform = process.platform, appPath = null) {
@@ -116,13 +164,20 @@ export async function findRunningPids(adapter, platform = process.platform, exec
     });
   }
   if (platform === "win32") {
-    const names = JSON.stringify([
+    // tasklist is an order of magnitude faster than spawning PowerShell, which
+    // matters because restart flows poll this while waiting for processes to die.
+    const withExe = (name) => (/\.exe$/i.test(name) ? name : `${name}.exe`).toLowerCase();
+    const names = new Set([
       ...(config.processNames ?? []),
       ...(executablePath ? [path.win32.basename(executablePath)] : []),
-    ]);
-    const script = `$names = ConvertFrom-Json '${names.replaceAll("'", "''")}'; Get-Process | Where-Object { $names -contains ($_.Name + '.exe') -or $names -contains $_.Name } | Select-Object -ExpandProperty Id`;
-    const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
-    return stdout.split(/\r?\n/).map(Number).filter(Number.isInteger);
+    ].map(withExe));
+    if (!names.size) return [];
+    const { stdout } = await execFileAsync("tasklist.exe", ["/FO", "CSV", "/NH"]);
+    return stdout.split(/\r?\n/).flatMap((line) => {
+      const match = /^"([^"]+)","(\d+)"/.exec(line);
+      if (!match || !names.has(match[1].toLowerCase())) return [];
+      return [Number(match[2])];
+    });
   }
   return [];
 }
@@ -132,8 +187,9 @@ async function stopExisting(adapter, pids, platform = process.platform, executab
   if (platform === "darwin" && config.bundleId) {
     await execFileAsync("osascript", ["-e", `tell application id "${config.bundleId}" to quit`]).catch(() => {});
   } else if (platform === "win32" && pids.length) {
-    const script = `Stop-Process -Id ${pids.join(",")} -Force -ErrorAction SilentlyContinue`;
-    await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]).catch(() => {});
+    // /T also stops child process trees (gpu/network/renderer helpers) so the
+    // CDP port is actually released before relaunching.
+    await execFileAsync("taskkill.exe", ["/F", "/T", ...pids.flatMap((pid) => ["/PID", String(pid)])]).catch(() => {});
   }
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (!(await findRunningPids(adapter, platform, executablePath)).length) return;
@@ -182,7 +238,14 @@ export async function launchApp({ adapter, port = adapter.defaultPort, appPath =
     await stopExisting(adapter, runningPids, process.platform, discovered.executable);
   }
 
-  if (await isPortOccupied(port)) {
+  // The OS can take a moment to release the listener after the process dies.
+  const releaseDeadline = Date.now() + 3000;
+  let portStillOccupied = await isPortOccupied(port);
+  while (portStillOccupied && Date.now() < releaseDeadline) {
+    await delay(250);
+    portStillOccupied = await isPortOccupied(port);
+  }
+  if (portStillOccupied) {
     const error = new Error(`Port ${port} is still occupied after stopping ${adapter.displayName}.`);
     error.code = "CODEDROBE_PORT_OCCUPIED";
     error.port = port;
