@@ -5,15 +5,15 @@ Multi-app theming CLI and runtime for supported Chromium/Electron desktop applic
 [中文文档](./README_zh.md)
 
 ```bash
-npx --yes --package=@codedrobe/core@0.3.0 codedrobe apps
-npx --yes --package=@codedrobe/core@0.3.0 codedrobe detect
-npx --yes --package=@codedrobe/core@0.3.0 codedrobe apply --app workbuddy --theme /absolute/theme.codedrobe-theme
+npx --yes --package=@codedrobe/core@0.4.0 codedrobe apps
+npx --yes --package=@codedrobe/core@0.4.0 codedrobe detect
+npx --yes --package=@codedrobe/core@0.4.0 codedrobe apply --app workbuddy --theme /absolute/theme.codedrobe-theme
 ```
 
 Bun is supported as a CLI runtime:
 
 ```bash
-bunx --package @codedrobe/core@0.3.0 codedrobe apps
+bunx --package @codedrobe/core@0.4.0 codedrobe apps
 ```
 
 Check for or install the latest global CLI version:
@@ -49,9 +49,9 @@ The package ships TypeScript declarations for the root API and the `@codedrobe/c
 
 Built-in adapters currently include `codex` and `workbuddy`. Existing applications are never restarted unless `--restart-existing` is explicitly provided.
 
-When a Codex theme changes host appearance settings, a running Codex process must restart before the complete skin can load. Core returns `CODEDROBE_RESTART_REQUIRED` and rolls the settings back unless `--restart-existing` is explicit. Renderer-only changes can still apply live.
+Codex hot-reloads the managed appearance settings, so switching between Codex themes never requires a restart on its own. A restart is only required when the application is already running without the CDP debugging flag: Core returns `CODEDROBE_RESTART_REQUIRED` and leaves the app untouched unless `--restart-existing` is explicit. Manually restarting the app never enables theming — the debugging flag can only be set by a CodeDrobe-driven launch.
 
-If an application is installed outside the adapter's default locations, pass its app bundle, installation directory, or executable file explicitly:
+On Windows, applications installed outside the adapter's default paths (for example on a secondary drive) are also discovered through the installer's registry uninstall entries. If discovery still fails, pass the app bundle, installation directory, or executable file explicitly:
 
 ```bash
 codedrobe detect --app workbuddy --app-path "/custom/WorkBuddy.app"
@@ -120,7 +120,9 @@ CodeDrobe probes each adapter's stable cross-route renderer landmarks before inj
 }
 ```
 
-Missing adapter or theme `required` landmarks stop injection and report the scope, active context, name, attempted selectors, and selector parse errors. Missing `recommended` landmarks are returned as warnings without blocking injection. Context checks run only while one of their `when.any` landmarks is visible.
+Compatibility is judged per renderer window: windows missing `required` landmarks are skipped and reported, and the apply fails only when no window qualifies. Errors name the failing window and report the scope, active context, name, attempted selectors, selector parse errors, and the adapter's last-verified versions. Missing `recommended` landmarks are returned as warnings without blocking injection. Context checks run only while one of their `when.any` landmarks is visible. Pages that have not rendered their root landmark yet (splash and loading screens) are treated as booting and re-probed for the full apply budget instead of failing fast.
+
+The built-in adapters only treat the root landmark as blocking; their sidebar, workspace, and composer probes are warning-level because applications hide those panels in popped-out windows, collapsed layouts, and secondary routes. Theme authors should follow the same principle: prefer `recommended` and reserve `required` for landmarks without which the theme genuinely malfunctions, since a `required` entry blocks applies whenever that panel is hidden.
 
 A source manifest can declare up to 32 named PNG, JPEG, WebP, or GIF images. Packing embeds them under `assets.images`; the renderer creates scoped Blob URLs and exposes one CSS variable per image:
 
@@ -159,4 +161,4 @@ Converted Codex themes select a trusted renderer profile supplied by Core. It re
 
 For Codex themes with `baseTheme`, `applySkin()` changes only the three managed appearance keys under `[desktop]` in `~/.codex/config.toml`. Restore merges those keys from `config.before-codedrobe.toml` and preserves unrelated edits. The default backup path remains compatible with the old Skill (`~/Library/Application Support/CodeDrobe/` on macOS and `%LOCALAPPDATA%\CodeDrobe\` on Windows), and `restoreSkin()` can recover host settings even while Codex/CDP is offline.
 
-The Codex adapter was last verified against macOS app version `26.707.72221` (build `5307`) and the WorkBuddy adapter against macOS `5.2.6`, both on 2026-07-16. WorkBuddy passed the full launch/probe/apply/verify/screenshot/restore flow. Use `codedrobe apps --json` to read this metadata.
+The Codex adapter was last verified against macOS app version `26.707.72221` (build `5307`) on 2026-07-16, and the WorkBuddy adapter against `5.2.6` on macOS (2026-07-16) and Windows (2026-07-18). WorkBuddy passed the full launch/probe/apply/verify/screenshot/restore flow on both platforms; the Microsoft Store build of Codex passed the apply/restart flow on Windows. Use `codedrobe apps --json` to read this metadata.
