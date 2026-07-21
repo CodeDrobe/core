@@ -11,8 +11,16 @@ test("built-in adapters have unique ids and ports", () => {
 test("Codex target matcher accepts only app pages", () => {
   const adapter = getAdapter("codex");
   assert.equal(adapter.matchTarget({ type: "page", url: "app://codex/home" }), true);
+  assert.equal(adapter.matchTarget({ type: "page", url: "app://-/index.html" }), true);
   assert.equal(adapter.matchTarget({ type: "page", url: "file:///tmp/index.html" }), false);
   assert.equal(adapter.matchTarget({ type: "worker", url: "app://codex/worker" }), false);
+});
+
+test("Codex target matcher rejects the hidden avatar overlay surface", () => {
+  const adapter = getAdapter("codex");
+  // Windows 26.715 exposes the overlay with a percent-encoded route.
+  assert.equal(adapter.matchTarget({ type: "page", url: "app://-/index.html?initialRoute=%2Favatar-overlay" }), false);
+  assert.equal(adapter.matchTarget({ type: "page", url: "app://-/index.html?initialRoute=/avatar-overlay" }), false);
 });
 
 test("Codex verification keeps only current cross-route landmarks", () => {

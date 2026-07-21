@@ -224,7 +224,7 @@ codedrobe restore --app workbuddy
 
 `targets.<app>.verification` 是可选的主题专属 DOM 依赖：
 
-- `required`：该窗口缺失时判定不兼容。兼容性按窗口独立判定：不兼容的窗口会被跳过并记录，只有所有窗口都不兼容时应用才会失败。
+- `required`：该窗口缺失时判定不兼容。兼容性按窗口独立判定：缺少主窗口 DOM 的次级窗口（独立弹出的对话、隐藏的 overlay 面板）会标记为 `"skipped": true` 并记录，`probe`/`apply`/`verify` 只有在没有任何窗口合格时才失败；已安装主题的窗口不会被跳过，主题窗口上的回归仍会判失败。
 - `recommended`：缺失时只返回警告，不阻止注入。
 - `contexts`：通过 `when.any` 判断当前页面，只在上下文激活时检查其中的 `required` 和 `recommended`。
 

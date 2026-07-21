@@ -26,7 +26,14 @@ const codex = {
     },
   },
   matchTarget(target) {
-    return target?.type === "page" && String(target.url ?? "").startsWith("app://");
+    if (target?.type !== "page") return false;
+    const url = String(target.url ?? "");
+    // Codex hosts hidden auxiliary surfaces on the same app:// origin, keyed by
+    // an initialRoute query (e.g. index.html?initialRoute=%2Favatar-overlay on
+    // Windows 26.715). They never grow the main-window DOM, so they are not
+    // themeable windows.
+    if (/initialRoute=(%2f|\/)avatar-overlay/i.test(url)) return false;
+    return url.startsWith("app://");
   },
   verification: {
     // The root landmark is the only blocking check: it doubles as the

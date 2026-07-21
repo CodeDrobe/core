@@ -209,6 +209,13 @@ function output(value, json = false) {
   else console.log(value);
 }
 
+function noteSkippedTargets(results, json) {
+  const skipped = results.filter((item) => item.skipped);
+  if (!skipped.length || json) return;
+  const detail = skipped.map((item) => item.url || item.title || item.targetId).join(", ");
+  console.error(`[codedrobe] Skipped ${skipped.length} secondary target(s) without the main-window DOM: ${detail}`);
+}
+
 function parsePort(value, fallback) {
   const port = value === undefined ? fallback : Number(value);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error(`Invalid port '${value}'.`);
@@ -262,8 +269,11 @@ function summarizeAdapter(adapter) {
   };
 }
 
+// Targets flagged skipped are secondary surfaces (popped-out chats, hidden
+// overlays) that were never expected to carry the theme; only primary windows
+// gate the exit code. probeApp/verifyTheme decide the flag per target.
 function ensurePassing(results, action) {
-  const failures = results.filter((item) => item.result?.pass === false);
+  const failures = results.filter((item) => !item.skipped && item.result?.pass === false);
   if (failures.length) {
     const missing = failures.flatMap((item) => item.result?.missing ?? []);
     const detail = missing
@@ -278,7 +288,7 @@ function ensurePassing(results, action) {
 }
 
 function ensureCompatible(results, action) {
-  const failures = results.filter((item) => item.result?.compatible === false);
+  const failures = results.filter((item) => !item.skipped && item.result?.compatible === false);
   if (!failures.length) return;
   const missing = failures.flatMap((item) => item.result?.missing ?? []);
   const detail = missing
@@ -359,6 +369,7 @@ async function runProbe(options) {
     throw error;
   }
   output({ action: "probe", appId: adapter.id, port, theme: targetTheme?.theme ?? null, targets: results }, options.json);
+  noteSkippedTargets(results, options.json);
   ensureCompatible(results, `${adapter.displayName}`);
 }
 
@@ -421,6 +432,7 @@ async function runVerify(options) {
     ? await captureScreenshot({ adapter, port, output: options.screenshot })
     : null;
   output({ action: "verify", appId: adapter.id, port, screenshot, targets: results }, options.json);
+  noteSkippedTargets(results, options.json);
   ensurePassing(results, "Theme");
 }
 

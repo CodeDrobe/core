@@ -108,10 +108,23 @@ async function waitForCompatibility(session, expression, settleTimeoutMs = 5000,
   } while (true);
 }
 
+/**
+ * Secondary surfaces (popped-out chats, hidden overlays) legitimately lack the
+ * main-window DOM. Once at least one target qualifies as a primary window, the
+ * rest are demoted to skipped so probe/verify agree with applyTheme, which
+ * themes compatible targets and skips the others. With zero primary targets
+ * nothing is demoted, so a genuinely broken main window still fails loudly.
+ */
+export function markSecondaryTargets(results, isPrimary) {
+  if (!results.some(isPrimary)) return results;
+  return results.map((item) => (isPrimary(item) ? item : { ...item, skipped: true }));
+}
+
 export async function probeApp({ adapter, targetTheme = null, port, timeoutMs = 5000 }) {
   const targets = await waitForTargets(adapter, port, timeoutMs);
   const expression = buildProbeExpression(adapter, targetTheme?.verification ?? null);
-  return withSessions(targets, (session) => waitForCompatibility(session, expression, Math.min(timeoutMs, 5000)));
+  const results = await withSessions(targets, (session) => waitForCompatibility(session, expression, Math.min(timeoutMs, 5000)));
+  return markSecondaryTargets(results, (item) => item.result?.compatible === true);
 }
 
 export async function snapshotDom({
@@ -173,12 +186,15 @@ export async function applyTheme({ adapter, targetTheme, port, timeoutMs = 30000
 
 export async function verifyTheme({ adapter, targetTheme, port, timeoutMs = 30000 }) {
   const targets = await waitForTargets(adapter, port, timeoutMs);
-  return withSessions(targets, (session) => session.evaluate(buildVerifyExpression(
+  const results = await withSessions(targets, (session) => session.evaluate(buildVerifyExpression(
     adapter,
     targetTheme?.theme ?? null,
     targetTheme?.verification ?? null,
     targetTheme,
   )));
+  // A themed window must still verify even if its landmarks broke after apply,
+  // so installed targets stay primary alongside compatible ones.
+  return markSecondaryTargets(results, (item) => item.result?.compatible === true || item.result?.installed === true);
 }
 
 export async function removeTheme({ adapter, port, timeoutMs = 30000 }) {

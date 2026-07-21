@@ -248,6 +248,12 @@ export interface TargetResult<T = unknown> {
   title?: string;
   url?: string;
   result: T;
+  /**
+   * Secondary surfaces (popped-out chats, hidden overlays) that lack the
+   * main-window DOM are demoted to skipped once at least one primary window
+   * qualifies; skipped targets do not gate probe/apply/verify success.
+   */
+  skipped?: boolean;
 }
 
 export interface DomSnapshotSelector {
