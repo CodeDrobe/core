@@ -45,4 +45,12 @@ jobs:
 
       - name: Publish package
         if: steps.npm-version.outputs.publish == 'true'
-        run: npm publish --access public
+        # Prerelease versions (any -suffix) must never land on the latest
+        # dist-tag: skills install via @latest, so a mistagged beta reaches
+        # every user on their next run.
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          case "${PACKAGE_VERSION}" in
+            *-*) npm publish --access public --tag beta ;;
+            *) npm publish --access public ;;
+          esac
